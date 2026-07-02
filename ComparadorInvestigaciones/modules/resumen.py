@@ -8,8 +8,9 @@ modules/resumen.py
 
 Descripción:
 Pestaña principal de resumen general del sistema.
+Esta versión usa analytics_service.py como motor analítico.
 
-Versión: 1.0.0
+Versión: 1.1.0
 Autor: Jorge Saavedra
 ==============================================================
 """
@@ -19,18 +20,13 @@ from __future__ import annotations
 import streamlit as st
 import pandas as pd
 
+from services.analytics_service import obtener_dashboard
+from modules.exportacion import mostrar_exportacion
+
 from utils.helpers import (
-    obtener_resumen_general,
-    ranking_proveedores,
-    ranking_claves,
     formatear_moneda,
 )
 
-from modules.exportacion import mostrar_exportacion
-
-# ==========================================================
-# RESUMEN GENERAL
-# ==========================================================
 
 def mostrar_resumen(df: pd.DataFrame) -> None:
     """
@@ -40,7 +36,12 @@ def mostrar_resumen(df: pd.DataFrame) -> None:
     st.header("📊 Resumen General")
     st.markdown("Vista ejecutiva de las investigaciones cargadas.")
 
-    resumen = obtener_resumen_general(df)
+    dashboard = obtener_dashboard(df)
+
+    resumen = dashboard["resumen"]
+    resumen_investigacion = dashboard["resumen_investigacion"]
+    ranking_proveedores_df = dashboard["ranking_proveedores"]
+    ranking_claves_df = dashboard["ranking_claves"]
 
     col1, col2, col3, col4 = st.columns(4)
 
@@ -94,25 +95,19 @@ def mostrar_resumen(df: pd.DataFrame) -> None:
 
     st.subheader("📋 Resumen por investigación")
 
-    resumen_investigacion = (
-        df.groupby("INVESTIGACION")
-        .agg(
-            registros=("CLAVE", "count"),
-            claves=("CLAVE", "nunique"),
-            proveedores=("RAZON SOCIAL", "nunique"),
-            precio_minimo=("PRECIO UNITARIO", "min"),
-            precio_maximo=("PRECIO UNITARIO", "max"),
-            precio_promedio=("PRECIO UNITARIO", "mean"),
-        )
-        .reset_index()
-        .sort_values("INVESTIGACION")
-    )
-
     resumen_mostrar = resumen_investigacion.copy()
 
-    resumen_mostrar["precio_minimo"] = resumen_mostrar["precio_minimo"].apply(formatear_moneda)
-    resumen_mostrar["precio_maximo"] = resumen_mostrar["precio_maximo"].apply(formatear_moneda)
-    resumen_mostrar["precio_promedio"] = resumen_mostrar["precio_promedio"].apply(formatear_moneda)
+    resumen_mostrar["precio_minimo"] = resumen_mostrar["precio_minimo"].apply(
+        formatear_moneda
+    )
+
+    resumen_mostrar["precio_maximo"] = resumen_mostrar["precio_maximo"].apply(
+        formatear_moneda
+    )
+
+    resumen_mostrar["precio_promedio"] = resumen_mostrar["precio_promedio"].apply(
+        formatear_moneda
+    )
 
     st.dataframe(
         resumen_mostrar,
@@ -127,10 +122,8 @@ def mostrar_resumen(df: pd.DataFrame) -> None:
     with col1:
         st.subheader("🏢 Ranking de proveedores")
 
-        proveedores = ranking_proveedores(df).head(10)
-
         st.dataframe(
-            proveedores,
+            ranking_proveedores_df.head(10),
             use_container_width=True,
             hide_index=True
         )
@@ -138,20 +131,19 @@ def mostrar_resumen(df: pd.DataFrame) -> None:
     with col2:
         st.subheader("🔑 Ranking de claves")
 
-        claves = ranking_claves(df).head(10)
-
         st.dataframe(
-            claves,
+            ranking_claves_df.head(10),
             use_container_width=True,
             hide_index=True
         )
 
     with st.expander("🔍 Ver datos consolidados"):
         st.dataframe(
-            df,
+            dashboard["datos"],
             use_container_width=True,
             hide_index=True
         )
 
-        st.markdown("---")
+    st.markdown("---")
+
     mostrar_exportacion(df)

@@ -8,8 +8,9 @@ modules/analisis_proveedores.py
 
 Descripción:
 Pestaña de análisis por proveedor.
+Esta versión usa analytics_service.py como motor analítico.
 
-Versión: 1.0.0
+Versión: 1.1.0
 Autor: Jorge Saavedra
 ==============================================================
 """
@@ -20,14 +21,12 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
+from services.analytics_service import analizar_proveedor
+
 from utils.helpers import (
     obtener_lista_proveedores,
-    filtrar_por_proveedor,
-    obtener_resumen_proveedor,
-    obtener_detalle_proveedor,
     formatear_moneda,
     formatear_porcentaje,
-    extraer_numero_investigacion,
 )
 
 
@@ -50,21 +49,20 @@ def mostrar_analisis_proveedor(df: pd.DataFrame) -> None:
         key="selector_proveedor"
     )
 
-    df_proveedor = filtrar_por_proveedor(
+    analisis = analizar_proveedor(
         df,
         proveedor_seleccionado
     )
 
-    if df_proveedor.empty:
+    if not analisis["existe"]:
         st.warning("No hay información para el proveedor seleccionado.")
         return
 
-    df_proveedor = df_proveedor.copy()
-    df_proveedor["NUM_INVESTIGACION"] = df_proveedor["INVESTIGACION"].apply(
-        extraer_numero_investigacion
-    )
-
-    resumen = obtener_resumen_proveedor(df_proveedor)
+    df_proveedor = analisis["df"]
+    resumen = analisis["resumen"]
+    detalle = analisis["detalle"]
+    variaciones = analisis["variaciones"]
+    resumen_claves = analisis["resumen_claves"]
 
     st.subheader(f"📋 {resumen['proveedor']}")
 
@@ -96,17 +94,17 @@ def mostrar_analisis_proveedor(df: pd.DataFrame) -> None:
 
     st.subheader("📋 Detalle del proveedor")
 
-    detalle = obtener_detalle_proveedor(df_proveedor)
-
     detalle_mostrar = detalle.copy()
 
     if "PRECIO UNITARIO" in detalle_mostrar.columns:
-        detalle_mostrar["PRECIO UNITARIO"] = detalle_mostrar["PRECIO UNITARIO"].apply(
-            formatear_moneda
-        )
+        detalle_mostrar["PRECIO UNITARIO"] = detalle_mostrar[
+            "PRECIO UNITARIO"
+        ].apply(formatear_moneda)
 
     if "CANTIDAD OFERTADA" in detalle_mostrar.columns:
-        detalle_mostrar["CANTIDAD OFERTADA"] = detalle_mostrar["CANTIDAD OFERTADA"].apply(
+        detalle_mostrar["CANTIDAD OFERTADA"] = detalle_mostrar[
+            "CANTIDAD OFERTADA"
+        ].apply(
             lambda x: f"{x:,.0f}"
         )
 
@@ -124,110 +122,67 @@ def mostrar_analisis_proveedor(df: pd.DataFrame) -> None:
 
     st.subheader("📊 Análisis de variaciones")
 
-    claves_conteo = (
-        df_proveedor
-        .groupby("CLAVE")["INVESTIGACION"]
-        .nunique()
-    )
-
-    claves_repetidas = claves_conteo[
-        claves_conteo > 1
-    ].index.tolist()
-
-    if not claves_repetidas:
+    if not variaciones:
         st.info(
             "Este proveedor no tiene claves repetidas en múltiples investigaciones."
         )
     else:
         st.info(
-            f"Se encontraron {len(claves_repetidas)} clave(s) con participación en múltiples investigaciones."
+            f"Se encontraron {len(variaciones)} clave(s) con participación en múltiples investigaciones."
         )
 
-        for clave in sorted(claves_repetidas):
-            df_clave = (
-                df_proveedor[
-                    df_proveedor["CLAVE"] == clave
-                ]
-                .copy()
-                .sort_values("NUM_INVESTIGACION")
-            )
+        for clave, info in variaciones.items():
 
             st.markdown(f"### 🔑 Clave: {clave}")
-
-            descripcion = df_clave["DESCRIPCION"].iloc[0]
-            st.caption(descripcion)
-
-            df_variacion = df_clave[
-                [
-                    "INVESTIGACION",
-                    "PRECIO UNITARIO",
-                    "PAIS DE ORIGEN",
-                    "CANTIDAD OFERTADA"
-                ]
-            ].copy()
-
-            df_variacion["DIFERENCIA VS ANTERIOR"] = (
-                df_variacion["PRECIO UNITARIO"].diff()
-            )
-
-            df_variacion["% VARIACION"] = (
-                df_variacion["PRECIO UNITARIO"].pct_change() * 100
-            )
-
-            precio_inicial = df_variacion["PRECIO UNITARIO"].iloc[0]
-            precio_final = df_variacion["PRECIO UNITARIO"].iloc[-1]
-
-            cambio_total = 0
-
-            if precio_inicial > 0:
-                cambio_total = (
-                    (precio_final - precio_inicial)
-                    / precio_inicial
-                ) * 100
+            st.caption(info["descripcion"])
 
             col1, col2, col3 = st.columns(3)
 
             with col1:
                 st.metric(
                     "Precio inicial",
-                    formatear_moneda(precio_inicial)
+                    formatear_moneda(info["precio_inicial"])
                 )
 
             with col2:
                 st.metric(
                     "Precio final",
-                    formatear_moneda(precio_final)
+                    formatear_moneda(info["precio_final"])
                 )
 
             with col3:
                 st.metric(
                     "Variación total",
-                    formatear_porcentaje(cambio_total)
+                    formatear_porcentaje(info["cambio_total"])
                 )
 
-            df_mostrar = df_variacion.copy()
+            df_mostrar = info["df"].copy()
 
-            df_mostrar["PRECIO UNITARIO"] = df_mostrar["PRECIO UNITARIO"].apply(
-                formatear_moneda
-            )
+            if "PRECIO UNITARIO" in df_mostrar.columns:
+                df_mostrar["PRECIO UNITARIO"] = df_mostrar[
+                    "PRECIO UNITARIO"
+                ].apply(formatear_moneda)
 
-            df_mostrar["DIFERENCIA VS ANTERIOR"] = df_mostrar[
-                "DIFERENCIA VS ANTERIOR"
-            ].apply(
-                lambda x: "" if pd.isna(x) else formatear_moneda(x)
-            )
+            if "DIFERENCIA VS ANTERIOR" in df_mostrar.columns:
+                df_mostrar["DIFERENCIA VS ANTERIOR"] = df_mostrar[
+                    "DIFERENCIA VS ANTERIOR"
+                ].apply(
+                    lambda x: "" if pd.isna(x) else formatear_moneda(x)
+                )
 
-            df_mostrar["% VARIACION"] = df_mostrar[
-                "% VARIACION"
-            ].apply(
-                lambda x: "" if pd.isna(x) else formatear_porcentaje(x)
-            )
+            if "% VARIACION" in df_mostrar.columns:
+                df_mostrar["% VARIACION"] = df_mostrar[
+                    "% VARIACION"
+                ].apply(
+                    lambda x: "" if pd.isna(x) else formatear_porcentaje(x)
+                )
 
-            df_mostrar["CANTIDAD OFERTADA"] = df_mostrar[
-                "CANTIDAD OFERTADA"
-            ].apply(
-                lambda x: f"{x:,.0f}"
-            )
+            if "CANTIDAD OFERTADA" in df_mostrar.columns:
+                df_mostrar["CANTIDAD OFERTADA"] = df_mostrar[
+                    "CANTIDAD OFERTADA"
+                ].apply(
+                    lambda x: f"{x:,.0f}"
+                )
 
             st.dataframe(
                 df_mostrar,
@@ -243,24 +198,20 @@ def mostrar_analisis_proveedor(df: pd.DataFrame) -> None:
 
     st.subheader("📈 Gráfica histórica")
 
-    if not claves_repetidas:
+    if not variaciones:
         st.info(
             "No hay claves repetidas suficientes para generar gráfica histórica."
         )
     else:
+        claves_variacion = list(variaciones.keys())
+
         clave_grafica = st.selectbox(
             "Selecciona una clave para graficar",
-            sorted(claves_repetidas),
+            claves_variacion,
             key="selector_clave_grafica_proveedor"
         )
 
-        df_grafica = (
-            df_proveedor[
-                df_proveedor["CLAVE"] == clave_grafica
-            ]
-            .copy()
-            .sort_values("NUM_INVESTIGACION")
-        )
+        df_grafica = variaciones[clave_grafica]["df"].copy()
 
         fig = px.line(
             df_grafica,
@@ -293,34 +244,22 @@ def mostrar_analisis_proveedor(df: pd.DataFrame) -> None:
 
     st.subheader("📊 Resumen por clave")
 
-    resumen_claves = (
-        df_proveedor
-        .groupby("CLAVE")
-        .agg(
-            investigaciones=("INVESTIGACION", "nunique"),
-            registros=("CLAVE", "count"),
-            precio_minimo=("PRECIO UNITARIO", "min"),
-            precio_maximo=("PRECIO UNITARIO", "max"),
-            precio_promedio=("PRECIO UNITARIO", "mean"),
-            paises=("PAIS DE ORIGEN", lambda x: ", ".join(sorted(x.dropna().unique())))
-        )
-        .reset_index()
-        .sort_values("CLAVE")
-    )
-
     resumen_mostrar = resumen_claves.copy()
 
-    resumen_mostrar["precio_minimo"] = resumen_mostrar["precio_minimo"].apply(
-        formatear_moneda
-    )
+    if "precio_minimo" in resumen_mostrar.columns:
+        resumen_mostrar["precio_minimo"] = resumen_mostrar[
+            "precio_minimo"
+        ].apply(formatear_moneda)
 
-    resumen_mostrar["precio_maximo"] = resumen_mostrar["precio_maximo"].apply(
-        formatear_moneda
-    )
+    if "precio_maximo" in resumen_mostrar.columns:
+        resumen_mostrar["precio_maximo"] = resumen_mostrar[
+            "precio_maximo"
+        ].apply(formatear_moneda)
 
-    resumen_mostrar["precio_promedio"] = resumen_mostrar["precio_promedio"].apply(
-        formatear_moneda
-    )
+    if "precio_promedio" in resumen_mostrar.columns:
+        resumen_mostrar["precio_promedio"] = resumen_mostrar[
+            "precio_promedio"
+        ].apply(formatear_moneda)
 
     st.dataframe(
         resumen_mostrar,

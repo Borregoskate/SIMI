@@ -8,8 +8,9 @@ modules/analisis_claves.py
 
 Descripción:
 Pestaña de análisis por clave.
+Esta versión usa analytics_service.py como motor analítico.
 
-Versión: 1.0.0
+Versión: 1.1.0
 Autor: Jorge Saavedra
 ==============================================================
 """
@@ -20,12 +21,10 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
+from services.analytics_service import analizar_clave
+
 from utils.helpers import (
     obtener_lista_claves,
-    filtrar_por_clave,
-    obtener_resumen_clave,
-    obtener_detalle_clave,
-    obtener_resumen_precios,
     formatear_moneda,
     formatear_porcentaje,
 )
@@ -50,14 +49,20 @@ def mostrar_analisis_clave(df: pd.DataFrame) -> None:
         key="selector_clave"
     )
 
-    df_clave = filtrar_por_clave(df, clave_seleccionada)
+    analisis = analizar_clave(
+        df,
+        clave_seleccionada
+    )
 
-    if df_clave.empty:
+    if not analisis["existe"]:
         st.warning("No hay información para la clave seleccionada.")
         return
 
-    resumen = obtener_resumen_clave(df_clave)
-    precios = obtener_resumen_precios(df_clave)
+    df_clave = analisis["df"]
+    resumen = analisis["resumen"]
+    precios = analisis["precios"]
+    detalle = analisis["detalle"]
+    pivot = analisis["pivot"]
 
     st.subheader(f"📌 Clave: {resumen['clave']}")
     st.info(f"📝 {resumen['descripcion']}")
@@ -96,6 +101,7 @@ def mostrar_analisis_clave(df: pd.DataFrame) -> None:
 
     with col1:
         mejor = precios["mejor"]
+
         st.success(
             f"""
             **Mejor precio**  
@@ -109,6 +115,7 @@ def mostrar_analisis_clave(df: pd.DataFrame) -> None:
 
     with col2:
         peor = precios["peor"]
+
         st.error(
             f"""
             **Precio más alto**  
@@ -124,13 +131,19 @@ def mostrar_analisis_clave(df: pd.DataFrame) -> None:
 
     st.subheader("📋 Detalle por investigación y proveedor")
 
-    detalle = obtener_detalle_clave(df_clave)
-
     detalle_mostrar = detalle.copy()
-    detalle_mostrar["PRECIO UNITARIO"] = detalle_mostrar["PRECIO UNITARIO"].apply(formatear_moneda)
-    detalle_mostrar["CANTIDAD OFERTADA"] = detalle_mostrar["CANTIDAD OFERTADA"].apply(
-        lambda x: f"{x:,.0f}"
-    )
+
+    if "PRECIO UNITARIO" in detalle_mostrar.columns:
+        detalle_mostrar["PRECIO UNITARIO"] = detalle_mostrar[
+            "PRECIO UNITARIO"
+        ].apply(formatear_moneda)
+
+    if "CANTIDAD OFERTADA" in detalle_mostrar.columns:
+        detalle_mostrar["CANTIDAD OFERTADA"] = detalle_mostrar[
+            "CANTIDAD OFERTADA"
+        ].apply(
+            lambda x: f"{x:,.0f}"
+        )
 
     st.dataframe(
         detalle_mostrar,
@@ -179,19 +192,8 @@ def mostrar_analisis_clave(df: pd.DataFrame) -> None:
 
     st.markdown("---")
 
-    with st.expander("📊 Tabla comparativa Archivo vs Proveedor"):
-        tabla_pivot = (
-            df_clave
-            .pivot_table(
-                values="PRECIO UNITARIO",
-                index="INVESTIGACION",
-                columns="RAZON SOCIAL",
-                aggfunc="first"
-            )
-            .round(2)
-        )
-
+    with st.expander("📊 Tabla comparativa Investigación vs Proveedor"):
         st.dataframe(
-            tabla_pivot,
+            pivot,
             use_container_width=True
         )
