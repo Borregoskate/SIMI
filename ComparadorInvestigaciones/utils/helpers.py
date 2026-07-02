@@ -1593,3 +1593,51 @@ def tiene_columna_adjudicacion(df: pd.DataFrame) -> bool:
     ]
 
     return any(columna in df.columns for columna in posibles_columnas)
+
+# ==========================================================
+# UNIFICACIÓN DE PROVEEDORES
+# ==========================================================
+
+def obtener_nombre_proveedor_principal(grupo: pd.Series) -> str:
+    """
+    Devuelve el nombre más frecuente de un proveedor.
+    """
+
+    grupo = grupo.dropna().astype(str).str.strip()
+
+    if grupo.empty:
+        return "N/A"
+
+    return grupo.value_counts().index[0]
+
+
+def unificar_proveedores_por_rfc(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Unifica proveedores usando el RFC como identificador principal.
+
+    Si un mismo RFC aparece con diferentes razones sociales,
+    conserva el nombre más frecuente.
+    """
+
+    df = df.copy()
+
+    if "RFC" not in df.columns or "RAZON SOCIAL" not in df.columns:
+        return df
+
+    df["RFC"] = df["RFC"].apply(normalizar_rfc)
+    df["RAZON SOCIAL"] = df["RAZON SOCIAL"].apply(limpiar_texto)
+
+    df = df[
+        (df["RFC"] != "")
+        & (df["RFC"].str.upper() != "NAN")
+    ].copy()
+
+    rfc_nombre = (
+        df.groupby("RFC")["RAZON SOCIAL"]
+        .agg(obtener_nombre_proveedor_principal)
+        .to_dict()
+    )
+
+    df["RAZON SOCIAL"] = df["RFC"].map(rfc_nombre)
+
+    return df
