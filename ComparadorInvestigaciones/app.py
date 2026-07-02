@@ -21,6 +21,8 @@ from config import (
     VERSION
 )
 
+from modules.analisis_desiertas import mostrar_analisis_desiertas
+
 # ==============================
 # Configuración de la página
 # ==============================
@@ -70,11 +72,12 @@ if investigaciones_df is None:
 # Menú principal
 # ==============================
 
-tab_resumen, tab_claves, tab_proveedores = st.tabs(
+tab_resumen, tab_claves, tab_proveedores, tab_desiertas = st.tabs(
     [
         "📊 Resumen General",
         "🔑 Análisis por Clave",
-        "🏢 Análisis por Proveedor"
+        "🏢 Análisis por Proveedor",
+        "🚫 Claves Desiertas"
     ]
 )
 
@@ -101,6 +104,13 @@ with tab_claves:
 with tab_proveedores:
 
     mostrar_analisis_proveedor(investigaciones_df)
+
+# ==============================
+# Pestaña Desiertas
+# ==============================
+
+with tab_desiertas:
+    mostrar_analisis_desiertas(investigaciones_df)
 
 # ==============================
 # Pie de página
