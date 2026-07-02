@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+
+# Entornos virtuales
+venv/
+env/
+.venv/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Archivos temporales
+temp/
+*.tmp
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# Excel temporales
+~$*.xlsx
+~$*.xls
+
+# Logs
+*.log
