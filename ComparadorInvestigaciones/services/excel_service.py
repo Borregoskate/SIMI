@@ -29,6 +29,7 @@ from utils.helpers import (
     agregar_nombre_archivo,
     extraer_numero_investigacion,
     limpiar_texto,
+    unificar_proveedores_por_rfc,
 )
 
 
@@ -147,6 +148,11 @@ def procesar_archivos(files: list[Any]) -> dict:
             dataframes,
             ignore_index=True
         )
+
+        df_consolidado = unificar_proveedores_por_rfc(
+            df_consolidado
+        )
+
     else:
         df_consolidado = pd.DataFrame()
 
