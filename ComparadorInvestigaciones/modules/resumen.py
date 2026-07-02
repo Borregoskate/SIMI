@@ -26,6 +26,7 @@ from utils.helpers import (
     formatear_moneda,
 )
 
+from modules.exportacion import mostrar_exportacion
 
 # ==========================================================
 # RESUMEN GENERAL
@@ -151,3 +152,6 @@ def mostrar_resumen(df: pd.DataFrame) -> None:
             use_container_width=True,
             hide_index=True
         )
+
+        st.markdown("---")
+    mostrar_exportacion(df)
