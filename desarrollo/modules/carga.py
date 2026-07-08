@@ -73,7 +73,7 @@ def mostrar_pantalla_carga_archivos():
             st.subheader("Vista previa de datos limpios")
             st.dataframe(
                 datos,
-                use_container_width=True
+                width="stretch"
             )
         else:
             st.warning("No se encontraron registros válidos para mostrar.")
@@ -85,7 +85,7 @@ def mostrar_pantalla_carga_archivos():
 
             st.dataframe(
                 df_errores,
-                use_container_width=True
+                width="stretch"
             )
 
         st.divider()
