@@ -15,6 +15,9 @@ Versión: 1.0.0
 ==============================================================
 """
 
+import re
+import unicodedata
+
 import pandas as pd
 
 
@@ -23,19 +26,39 @@ import pandas as pd
 # ==========================================================
 
 HOJA_PROPUESTA_ECONOMICA = "Propuesta Económica"
-FILA_ENCABEZADOS = 6  # Excel fila 7, pandas usa índice base 0
+
+# Excel fila 7, pandas usa índice base 0
+FILA_ENCABEZADOS = 6
 
 
 COLUMNAS_CARGA_1 = {
     "CLAVE": "clave",
     "DESCRIPCION": "descripcion",
-    "CANTIDAD REQUERIDA": "cantidad_requerida",
 }
 
 
 # ==========================================================
 # FUNCIONES AUXILIARES
 # ==========================================================
+
+def normalizar_texto(valor):
+    """
+    Normaliza texto eliminando acentos, espacios innecesarios
+    y convirtiendo a mayúsculas.
+    """
+    if pd.isna(valor):
+        return ""
+
+    texto = str(valor).strip()
+
+    texto = unicodedata.normalize("NFKD", texto)
+    texto = texto.encode("ASCII", "ignore").decode("ASCII")
+
+    texto = texto.upper()
+    texto = re.sub(r"\s+", " ", texto)
+
+    return texto
+
 
 def limpiar_texto(valor):
     """
@@ -44,13 +67,15 @@ def limpiar_texto(valor):
     if pd.isna(valor):
         return ""
 
-    return str(valor).strip().upper()
+    texto = str(valor).strip()
+    texto = re.sub(r"\s+", " ", texto)
+
+    return texto.upper()
 
 
 def limpiar_clave(valor):
     """
-    Limpia y normaliza la clave.
-    No transforma el formato de la clave, solo elimina espacios.
+    Limpia la clave sin modificar su formato original.
     """
     if pd.isna(valor):
         return ""
@@ -58,29 +83,16 @@ def limpiar_clave(valor):
     return str(valor).strip()
 
 
-def limpiar_cantidad(valor):
-    """
-    Convierte la cantidad requerida a número.
-    Si no se puede convertir, regresa None.
-    """
-    if pd.isna(valor):
-        return None
-
-    try:
-        return float(valor)
-    except (ValueError, TypeError):
-        return None
-
-
 def normalizar_columnas(df):
     """
-    Normaliza nombres de columnas para facilitar la lectura.
+    Normaliza nombres de columnas eliminando acentos,
+    espacios dobles, saltos de línea y caracteres especiales.
     """
     df = df.copy()
 
     df.columns = [
-        str(col).strip().upper()
-        for col in df.columns
+        normalizar_texto(columna)
+        for columna in df.columns
     ]
 
     return df
@@ -112,6 +124,13 @@ def validar_columnas_requeridas(df):
 def validar_filas_carga_1(df):
     """
     Valida fila por fila los datos de la Carga 1.
+
+    En esta carga solo se validan:
+    - clave
+    - descripción
+
+    La cantidad requerida no se toma del archivo actual.
+    Se asignará como NULL para conservar compatibilidad futura.
     """
     errores = []
 
@@ -120,12 +139,10 @@ def validar_filas_carga_1(df):
 
         clave = limpiar_clave(row.get("CLAVE"))
         descripcion = limpiar_texto(row.get("DESCRIPCION"))
-        cantidad = limpiar_cantidad(row.get("CANTIDAD REQUERIDA"))
 
         fila_vacia = (
             clave == ""
             and descripcion == ""
-            and cantidad is None
         )
 
         if fila_vacia:
@@ -145,19 +162,6 @@ def validar_filas_carga_1(df):
                 "error": "La descripción es obligatoria."
             })
 
-        if cantidad is None:
-            errores.append({
-                "fila": fila_excel,
-                "campo": "CANTIDAD REQUERIDA",
-                "error": "La cantidad requerida debe ser numérica."
-            })
-        elif cantidad <= 0:
-            errores.append({
-                "fila": fila_excel,
-                "campo": "CANTIDAD REQUERIDA",
-                "error": "La cantidad requerida debe ser mayor a cero."
-            })
-
     return errores
 
 
@@ -169,7 +173,7 @@ def procesar_carga_1_universo_procedimiento(archivo_excel):
     """
     Procesa el archivo Excel correspondiente a la Carga 1.
 
-    Carga 1 — Universo del Procedimiento
+    Carga 1 — Universo del Procedimiento.
 
     Lee:
     - Hoja: Propuesta Económica
@@ -177,7 +181,9 @@ def procesar_carga_1_universo_procedimiento(archivo_excel):
     - Columnas requeridas:
         CLAVE
         DESCRIPCION
-        CANTIDAD REQUERIDA
+
+    No procesa cantidad requerida porque el archivo actual
+    no contiene ese dato de forma confiable.
 
     Retorna:
     {
@@ -196,6 +202,7 @@ def procesar_carga_1_universo_procedimiento(archivo_excel):
             sheet_name=HOJA_PROPUESTA_ECONOMICA,
             header=FILA_ENCABEZADOS
         )
+
     except ValueError:
         return {
             "valido": False,
@@ -203,10 +210,14 @@ def procesar_carga_1_universo_procedimiento(archivo_excel):
             "errores": [{
                 "fila": None,
                 "campo": "HOJA",
-                "error": f"No se encontró la hoja requerida: {HOJA_PROPUESTA_ECONOMICA}"
+                "error": (
+                    "No se encontró la hoja requerida: "
+                    f"{HOJA_PROPUESTA_ECONOMICA}"
+                )
             }],
             "total_registros": 0
         }
+
     except Exception as e:
         return {
             "valido": False,
@@ -235,7 +246,10 @@ def procesar_carga_1_universo_procedimiento(archivo_excel):
 
     df["clave"] = df["CLAVE"].apply(limpiar_clave)
     df["descripcion"] = df["DESCRIPCION"].apply(limpiar_texto)
-    df["cantidad_requerida"] = df["CANTIDAD REQUERIDA"].apply(limpiar_cantidad)
+
+    # La cantidad requerida se conserva en el modelo,
+    # pero en esta carga queda como NULL.
+    df["cantidad_requerida"] = None
 
     df_limpio = df[[
         "clave",
@@ -247,7 +261,6 @@ def procesar_carga_1_universo_procedimiento(archivo_excel):
         ~(
             (df_limpio["clave"] == "")
             & (df_limpio["descripcion"] == "")
-            & (df_limpio["cantidad_requerida"].isna())
         )
     ]
 
@@ -265,6 +278,8 @@ def procesar_carga_1_universo_procedimiento(archivo_excel):
         subset=["clave"],
         keep="first"
     )
+
+    df_limpio = df_limpio.reset_index(drop=True)
 
     return {
         "valido": True,
