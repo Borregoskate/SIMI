@@ -5,7 +5,7 @@ Sistema Inteligente de Mercado e Investigaciones
 
 modules/carga_archivos.py
 
-Módulo para lectura, limpieza y validación de archivos Excel.
+Módulo para lectura, limpieza y preparación de archivos Excel.
 
 Sprint 0.6 — Paso 006
 Carga 1 — Universo del Procedimiento
@@ -20,6 +20,11 @@ import unicodedata
 
 import pandas as pd
 
+from services.validacion_service import (
+    validar_columnas_requeridas,
+    validar_carga_1_universo,
+)
+
 
 # ==========================================================
 # CONFIGURACIÓN DE CARGA 1
@@ -29,6 +34,9 @@ HOJA_PROPUESTA_ECONOMICA = "Propuesta Económica"
 
 # Excel fila 7, pandas usa índice base 0
 FILA_ENCABEZADOS = 6
+
+# Primer renglón real de datos en Excel
+FILA_INICIO_DATOS_EXCEL = 8
 
 
 COLUMNAS_CARGA_1 = {
@@ -98,71 +106,17 @@ def normalizar_columnas(df):
     return df
 
 
-# ==========================================================
-# VALIDACIONES
-# ==========================================================
-
-def validar_columnas_requeridas(df):
+def crear_error_lectura(campo, mensaje):
     """
-    Valida que el archivo contenga las columnas requeridas.
+    Crea un error estándar para errores de lectura del archivo.
     """
-    errores = []
-
-    columnas_archivo = list(df.columns)
-
-    for columna in COLUMNAS_CARGA_1.keys():
-        if columna not in columnas_archivo:
-            errores.append({
-                "fila": None,
-                "campo": columna,
-                "error": f"No se encontró la columna requerida: {columna}"
-            })
-
-    return errores
-
-
-def validar_filas_carga_1(df):
-    """
-    Valida fila por fila los datos de la Carga 1.
-
-    En esta carga solo se validan:
-    - clave
-    - descripción
-
-    La cantidad requerida no se toma del archivo actual.
-    Se asignará como NULL para conservar compatibilidad futura.
-    """
-    errores = []
-
-    for index, row in df.iterrows():
-        fila_excel = index + FILA_ENCABEZADOS + 2
-
-        clave = limpiar_clave(row.get("CLAVE"))
-        descripcion = limpiar_texto(row.get("DESCRIPCION"))
-
-        fila_vacia = (
-            clave == ""
-            and descripcion == ""
-        )
-
-        if fila_vacia:
-            continue
-
-        if clave == "":
-            errores.append({
-                "fila": fila_excel,
-                "campo": "CLAVE",
-                "error": "La clave es obligatoria."
-            })
-
-        if descripcion == "":
-            errores.append({
-                "fila": fila_excel,
-                "campo": "DESCRIPCION",
-                "error": "La descripción es obligatoria."
-            })
-
-    return errores
+    return {
+        "nivel": "ERROR",
+        "fila": None,
+        "campo": campo,
+        "valor": None,
+        "mensaje": mensaje
+    }
 
 
 # ==========================================================
@@ -190,11 +144,11 @@ def procesar_carga_1_universo_procedimiento(archivo_excel):
         "valido": bool,
         "datos": DataFrame,
         "errores": list,
+        "mensajes": list,
+        "resumen": dict,
         "total_registros": int
     }
     """
-
-    errores = []
 
     try:
         df = pd.read_excel(
@@ -204,41 +158,70 @@ def procesar_carga_1_universo_procedimiento(archivo_excel):
         )
 
     except ValueError:
+        mensaje = crear_error_lectura(
+            campo="HOJA",
+            mensaje=(
+                "No se encontró la hoja requerida: "
+                f"{HOJA_PROPUESTA_ECONOMICA}"
+            )
+        )
+
         return {
             "valido": False,
             "datos": pd.DataFrame(),
-            "errores": [{
-                "fila": None,
-                "campo": "HOJA",
-                "error": (
-                    "No se encontró la hoja requerida: "
-                    f"{HOJA_PROPUESTA_ECONOMICA}"
-                )
-            }],
+            "errores": [mensaje],
+            "mensajes": [mensaje],
+            "resumen": {
+                "total_registros": 0,
+                "errores": 1,
+                "advertencias": 0,
+                "informativos": 0,
+                "valido": False
+            },
             "total_registros": 0
         }
 
     except Exception as e:
+        mensaje = crear_error_lectura(
+            campo="ARCHIVO",
+            mensaje=f"No fue posible leer el archivo: {str(e)}"
+        )
+
         return {
             "valido": False,
             "datos": pd.DataFrame(),
-            "errores": [{
-                "fila": None,
-                "campo": "ARCHIVO",
-                "error": f"No fue posible leer el archivo: {str(e)}"
-            }],
+            "errores": [mensaje],
+            "mensajes": [mensaje],
+            "resumen": {
+                "total_registros": 0,
+                "errores": 1,
+                "advertencias": 0,
+                "informativos": 0,
+                "valido": False
+            },
             "total_registros": 0
         }
 
     df = normalizar_columnas(df)
 
-    errores.extend(validar_columnas_requeridas(df))
+    mensajes_columnas = validar_columnas_requeridas(
+        df=df,
+        columnas_requeridas=list(COLUMNAS_CARGA_1.keys())
+    )
 
-    if errores:
+    if mensajes_columnas:
         return {
             "valido": False,
             "datos": pd.DataFrame(),
-            "errores": errores,
+            "errores": mensajes_columnas,
+            "mensajes": mensajes_columnas,
+            "resumen": {
+                "total_registros": 0,
+                "errores": len(mensajes_columnas),
+                "advertencias": 0,
+                "informativos": 0,
+                "valido": False
+            },
             "total_registros": 0
         }
 
@@ -257,33 +240,35 @@ def procesar_carga_1_universo_procedimiento(archivo_excel):
         "cantidad_requerida"
     ]].copy()
 
-    df_limpio = df_limpio[
-        ~(
-            (df_limpio["clave"] == "")
-            & (df_limpio["descripcion"] == "")
-        )
-    ]
-
-    errores.extend(validar_filas_carga_1(df))
-
-    if errores:
-        return {
-            "valido": False,
-            "datos": df_limpio,
-            "errores": errores,
-            "total_registros": len(df_limpio)
-        }
-
-    df_limpio = df_limpio.drop_duplicates(
-        subset=["clave"],
-        keep="first"
+    resultado_validacion = validar_carga_1_universo(
+        df=df_limpio,
+        fila_inicio_excel=FILA_INICIO_DATOS_EXCEL
     )
 
-    df_limpio = df_limpio.reset_index(drop=True)
+    datos_validados = resultado_validacion["datos_validados"]
+    mensajes = resultado_validacion["mensajes"]
+    resumen = resultado_validacion["resumen"]
+
+    # Para evitar insertar duplicados después.
+    # Si hay duplicados, se reportan como advertencia, pero aquí
+    # conservamos el primer registro para la vista previa.
+    datos_validados = datos_validados.drop_duplicates(
+        subset=["clave"],
+        keep="first"
+    ).reset_index(drop=True)
+
+    resumen["total_registros"] = len(datos_validados)
+
+    errores = [
+        mensaje for mensaje in mensajes
+        if mensaje.get("nivel") == "ERROR"
+    ]
 
     return {
-        "valido": True,
-        "datos": df_limpio,
-        "errores": [],
-        "total_registros": len(df_limpio)
+        "valido": resultado_validacion["valido"],
+        "datos": datos_validados,
+        "errores": errores,
+        "mensajes": mensajes,
+        "resumen": resumen,
+        "total_registros": len(datos_validados)
     }

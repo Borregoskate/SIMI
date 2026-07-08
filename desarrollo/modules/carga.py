@@ -31,7 +31,7 @@ def mostrar_pantalla_carga_archivos():
     st.subheader("Carga 1 — Universo del Procedimiento")
 
     st.info(
-        "Esta pantalla solo valida el archivo cargado. "
+        "Esta pantalla valida el archivo cargado. "
         "Todavía no inserta información en la base de datos."
     )
 
@@ -49,28 +49,49 @@ def mostrar_pantalla_carga_archivos():
 
         valido = resultado["valido"]
         datos = resultado["datos"]
-        errores = resultado["errores"]
-        total_registros = resultado["total_registros"]
+        mensajes = resultado.get("mensajes", [])
+        resumen = resultado.get("resumen", {})
+
+        errores = resumen.get("errores", 0)
+        advertencias = resumen.get("advertencias", 0)
+        informativos = resumen.get("informativos", 0)
+        total_registros = resumen.get("total_registros", 0)
+        claves_unicas = resumen.get("claves_unicas", 0)
+        duplicados_clave = resumen.get("duplicados_clave", 0)
 
         st.divider()
 
         if valido:
-            st.success("Archivo validado correctamente.")
+            st.success("Archivo validado correctamente. Está listo para importación futura.")
         else:
-            st.error("El archivo contiene errores. No se debe guardar en base de datos.")
+            st.error("El archivo contiene errores críticos. No debe guardarse en base de datos.")
 
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
 
         with col1:
-            st.metric("Registros detectados", total_registros)
+            st.metric("Registros válidos", total_registros)
 
         with col2:
-            st.metric("Errores encontrados", len(errores))
+            st.metric("Claves únicas", claves_unicas)
+
+        with col3:
+            st.metric("Duplicados de clave", duplicados_clave)
+
+        col4, col5, col6 = st.columns(3)
+
+        with col4:
+            st.metric("Errores", errores)
+
+        with col5:
+            st.metric("Advertencias", advertencias)
+
+        with col6:
+            st.metric("Informativos", informativos)
 
         st.divider()
 
         if not datos.empty:
-            st.subheader("Vista previa de datos limpios")
+            st.subheader("Vista previa de datos validados")
             st.dataframe(
                 datos,
                 width="stretch"
@@ -78,13 +99,28 @@ def mostrar_pantalla_carga_archivos():
         else:
             st.warning("No se encontraron registros válidos para mostrar.")
 
-        if errores:
-            st.subheader("Reporte de errores")
+        if mensajes:
+            st.subheader("Reporte de validación")
 
-            df_errores = pd.DataFrame(errores)
+            df_mensajes = pd.DataFrame(mensajes)
+
+            columnas_orden = [
+                "nivel",
+                "fila",
+                "campo",
+                "valor",
+                "mensaje"
+            ]
+
+            columnas_existentes = [
+                columna for columna in columnas_orden
+                if columna in df_mensajes.columns
+            ]
+
+            df_mensajes = df_mensajes[columnas_existentes]
 
             st.dataframe(
-                df_errores,
+                df_mensajes,
                 width="stretch"
             )
 
