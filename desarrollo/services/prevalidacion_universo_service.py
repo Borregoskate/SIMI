@@ -9,7 +9,8 @@ Servicio de prevalidación para la Carga 1:
 Universo del Procedimiento.
 
 Este servicio NO inserta datos en base de datos.
-Solo valida estructura, contenido y duplicados del archivo Excel.
+Solo valida estructura, contenido, duplicados y consistencia
+contra base de datos.
 
 Autor: Jorge Saavedra
 Versión: 1.0.0
@@ -17,6 +18,7 @@ Versión: 1.0.0
 """
 
 import pandas as pd
+
 from services.validacion_catalogos_service import (
     validar_claves_contra_catalogo,
     validar_procedimiento_existente
@@ -122,13 +124,13 @@ def prevalidar_universo_procedimiento(archivo):
         clave = row.get("CLAVE")
         descripcion = row.get("DESCRIPCION")
 
-        if not clave or clave.lower() == "nan":
+        if not clave or str(clave).lower() == "nan":
             errores.append(f"Fila {fila_excel}: la clave es obligatoria.")
 
-        if not descripcion or descripcion.lower() == "nan":
+        if not descripcion or str(descripcion).lower() == "nan":
             errores.append(f"Fila {fila_excel}: la descripción es obligatoria.")
 
-        if clave and clave.lower() != "nan":
+        if clave and str(clave).lower() != "nan":
             if clave in claves_vistas:
                 claves_duplicadas.add(clave)
             else:
@@ -150,57 +152,55 @@ def prevalidar_universo_procedimiento(archivo):
         "errores": errores,
         "resumen": resumen
     }
-    
-    def prevalidar_universo_contra_bd(df, conn, numero_procedimiento):
-        """
-        Ejecuta la prevalidación del universo contra base de datos.
 
-        Validaciones:
-        - El procedimiento no debe existir previamente.
-        - Las claves existentes deben coincidir con su descripción en catálogo.
-        - Las claves nuevas se marcan para futura inserción.
-        - Se agregan columnas ID_CLAVE y ES_NUEVA.
 
-        Este proceso NO inserta datos.
-        """
+def prevalidar_universo_contra_bd(df, conn, numero_procedimiento):
+    """
+    Ejecuta la prevalidación del universo contra base de datos.
 
-        errores = []
+    Validaciones:
+    - El procedimiento no debe existir previamente.
+    - Las claves existentes deben coincidir con su descripción en catálogo.
+    - Las claves nuevas se marcan para futura inserción.
+    - Se agregan columnas ID_CLAVE y ES_NUEVA.
 
-        validacion_procedimiento = validar_procedimiento_existente(
-            conn=conn,
-            numero_procedimiento=numero_procedimiento
+    Este proceso NO inserta datos.
+    """
+
+    errores = []
+
+    validacion_procedimiento = validar_procedimiento_existente(
+        conn=conn,
+        numero_procedimiento=numero_procedimiento
+    )
+
+    if validacion_procedimiento["existe"]:
+        errores.append(
+            f"El procedimiento '{numero_procedimiento}' ya existe en base de datos."
         )
-
-        if validacion_procedimiento["existe"]:
-            errores.append({
-                "fila": None,
-                "columna": "numero_procedimiento",
-                "valor": numero_procedimiento,
-                "error": "El procedimiento ya existe en base de datos."
-            })
-
-            return {
-                "success": False,
-                "df": df,
-                "errores": errores,
-                "resumen": {
-                    "total_registros": len(df),
-                    "claves_existentes": 0,
-                    "claves_nuevas": 0,
-                    "errores": len(errores)
-                }
-            }
-
-        resultado_claves = validar_claves_contra_catalogo(
-            df=df,
-            conn=conn
-        )
-
-        errores.extend(resultado_claves["errores"])
 
         return {
-            "success": len(errores) == 0,
-            "df": resultado_claves["df"],
+            "success": False,
+            "df": df,
             "errores": errores,
-            "resumen": resultado_claves["resumen"]
+            "resumen": {
+                "total_registros": len(df),
+                "claves_existentes": 0,
+                "claves_nuevas": 0,
+                "errores": len(errores)
+            }
         }
+
+    resultado_claves = validar_claves_contra_catalogo(
+        df=df,
+        conn=conn
+    )
+
+    errores.extend(resultado_claves["errores"])
+
+    return {
+        "success": len(errores) == 0,
+        "df": resultado_claves["df"],
+        "errores": errores,
+        "resumen": resultado_claves["resumen"]
+    }

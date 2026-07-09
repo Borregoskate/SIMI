@@ -16,25 +16,30 @@ Versión: 1.0.0
 """
 
 
+def normalizar_texto(valor):
+    """
+    Normaliza textos para comparación.
+    """
+
+    if valor is None:
+        return ""
+
+    return str(valor).strip().upper()
+
+
 def obtener_claves_catalogo(conn, claves):
     """
-    Consulta en base de datos las claves recibidas.
-
-    Retorna un diccionario con esta estructura:
-
-    {
-        "010.000.0000.00": {
-            "id_clave": 1,
-            "clave": "010.000.0000.00",
-            "descripcion": "DESCRIPCION"
-        }
-    }
+    Consulta claves existentes en el catálogo simi.claves.
     """
 
     if not claves:
         return {}
 
-    claves_limpias = list(set([str(c).strip() for c in claves if c]))
+    claves_limpias = list({
+        str(clave).strip()
+        for clave in claves
+        if clave is not None and str(clave).strip() and str(clave).strip().lower() != "nan"
+    })
 
     if not claves_limpias:
         return {}
@@ -54,108 +59,19 @@ def obtener_claves_catalogo(conn, claves):
 
     catalogo = {}
 
-    for registro in registros:
-        id_clave, clave, descripcion = registro
-
+    for id_clave, clave, descripcion in registros:
         catalogo[str(clave).strip()] = {
             "id_clave": id_clave,
             "clave": str(clave).strip(),
-            "descripcion": str(descripcion).strip().upper() if descripcion else ""
+            "descripcion": normalizar_texto(descripcion)
         }
 
     return catalogo
 
 
-def normalizar_texto_bd(valor):
-    """
-    Normaliza texto para comparación contra base de datos.
-    """
-
-    if valor is None:
-        return ""
-
-    return str(valor).strip().upper()
-
-
-def validar_claves_contra_catalogo(df, conn):
-    """
-    Valida las claves del DataFrame contra el catálogo de claves.
-
-    Reglas:
-    - Si la clave existe, agrega id_clave.
-    - Si la clave no existe, la marca como nueva.
-    - Si la clave existe pero la descripción no coincide, genera error.
-    - No inserta datos.
-    """
-
-    errores = []
-
-    df_validado = df.copy()
-
-    df_validado["ID_CLAVE"] = None
-    df_validado["ES_NUEVA"] = False
-
-    claves_archivo = df_validado["CLAVE"].dropna().astype(str).str.strip().tolist()
-
-    catalogo_claves = obtener_claves_catalogo(conn, claves_archivo)
-
-    for index, fila in df_validado.iterrows():
-        numero_fila = index + 2
-
-        clave = str(fila.get("CLAVE", "")).strip()
-        descripcion_archivo = normalizar_texto_bd(fila.get("DESCRIPCION", ""))
-
-        if not clave:
-            continue
-
-        clave_bd = catalogo_claves.get(clave)
-
-        if clave_bd:
-            df_validado.at[index, "ID_CLAVE"] = clave_bd["id_clave"]
-            df_validado.at[index, "ES_NUEVA"] = False
-
-            descripcion_bd = normalizar_texto_bd(clave_bd["descripcion"])
-
-            if descripcion_archivo != descripcion_bd:
-                errores.append({
-                    "fila": numero_fila,
-                    "columna": "DESCRIPCION",
-                    "valor": fila.get("DESCRIPCION", ""),
-                    "error": (
-                        "La clave ya existe en el catálogo, "
-                        "pero la descripción no coincide con la registrada en base de datos."
-                    ),
-                    "descripcion_bd": descripcion_bd
-                })
-
-        else:
-            df_validado.at[index, "ID_CLAVE"] = None
-            df_validado.at[index, "ES_NUEVA"] = True
-
-    resumen = {
-        "total_registros": len(df_validado),
-        "claves_existentes": int((df_validado["ES_NUEVA"] == False).sum()),
-        "claves_nuevas": int((df_validado["ES_NUEVA"] == True).sum()),
-        "errores": len(errores),
-    }
-
-    return {
-        "success": len(errores) == 0,
-        "df": df_validado,
-        "errores": errores,
-        "resumen": resumen
-    }
-
-
 def validar_procedimiento_existente(conn, numero_procedimiento):
     """
-    Valida si un procedimiento ya existe en base de datos.
-
-    Retorna:
-    {
-        "existe": True/False,
-        "id_procedimiento": valor o None
-    }
+    Valida si el procedimiento ya existe en simi.procedimientos.
     """
 
     query = """
@@ -182,4 +98,77 @@ def validar_procedimiento_existente(conn, numero_procedimiento):
         "existe": False,
         "id_procedimiento": None,
         "numero_procedimiento": None
+    }
+
+
+def validar_claves_contra_catalogo(df, conn):
+    """
+    Valida claves del archivo contra simi.claves.
+
+    Reglas:
+    - Si la clave existe, agrega ID_CLAVE.
+    - Si la clave no existe, marca ES_NUEVA = True.
+    - Si existe pero la descripción no coincide, genera error.
+    """
+
+    errores = []
+
+    df_validado = df.copy()
+
+    df_validado["ID_CLAVE"] = None
+    df_validado["ES_NUEVA"] = False
+
+    claves_archivo = (
+        df_validado["CLAVE"]
+        .dropna()
+        .astype(str)
+        .str.strip()
+        .tolist()
+    )
+
+    catalogo_claves = obtener_claves_catalogo(conn, claves_archivo)
+
+    for index, fila in df_validado.iterrows():
+        fila_excel = index + 8
+
+        clave = str(fila.get("CLAVE", "")).strip()
+        descripcion_archivo = normalizar_texto(fila.get("DESCRIPCION", ""))
+
+        if not clave or clave.lower() == "nan":
+            continue
+
+        clave_bd = catalogo_claves.get(clave)
+
+        if clave_bd:
+            df_validado.at[index, "ID_CLAVE"] = clave_bd["id_clave"]
+            df_validado.at[index, "ES_NUEVA"] = False
+
+            descripcion_bd = normalizar_texto(clave_bd["descripcion"])
+
+            if descripcion_archivo != descripcion_bd:
+                errores.append(
+                    f"Fila {fila_excel}: la clave '{clave}' ya existe en base de datos, "
+                    f"pero la descripción no coincide. "
+                    f"Archivo: '{descripcion_archivo}' | BD: '{descripcion_bd}'."
+                )
+
+        else:
+            df_validado.at[index, "ID_CLAVE"] = None
+            df_validado.at[index, "ES_NUEVA"] = True
+
+    total_nuevas = int((df_validado["ES_NUEVA"] == True).sum())
+    total_existentes = int((df_validado["ES_NUEVA"] == False).sum())
+
+    resumen = {
+        "total_registros": len(df_validado),
+        "claves_existentes": total_existentes,
+        "claves_nuevas": total_nuevas,
+        "errores": len(errores),
+    }
+
+    return {
+        "success": len(errores) == 0,
+        "df": df_validado,
+        "errores": errores,
+        "resumen": resumen
     }
