@@ -29,14 +29,12 @@ def mostrar_carga_universo():
 
     st.markdown(
         """
-        En este módulo se cargará el universo inicial del procedimiento:
-        
+        En este módulo se carga el universo inicial del procedimiento:
+
         - Claves
         - Descripciones
-        - Cantidades requeridas
-        
-        Esta etapa solo realiza la **prevalidación** del archivo.
-        No inserta información en la base de datos.
+
+        La cantidad requerida es opcional y no bloquea la carga.
         """
     )
 
@@ -45,6 +43,7 @@ def mostrar_carga_universo():
     st.subheader("Datos generales del procedimiento")
 
     numero_procedimiento = st.text_input("Número / Nombre del procedimiento")
+
     tipo_procedimiento = st.selectbox(
         "Tipo de procedimiento",
         [
@@ -88,7 +87,6 @@ def mostrar_carga_universo():
             col2.metric("Claves únicas", resumen["total_claves_unicas"])
             col3.metric("Duplicados", resumen["total_duplicados"])
             col4.metric("Errores", resumen["total_errores"])
-            
 
             st.subheader("Vista previa")
 
@@ -109,6 +107,7 @@ def mostrar_carga_universo():
 
             if resultado["dataframe"] is not None:
                 st.subheader("Vista previa del archivo recibido")
+
                 st.dataframe(
                     resultado["dataframe"],
                     use_container_width=True
