@@ -105,10 +105,12 @@ def validar_claves_contra_catalogo(df, conn):
     """
     Valida claves del archivo contra simi.claves.
 
-    Reglas:
+    Nueva regla autorizada:
+    - Solo se valida la existencia de la CLAVE.
     - Si la clave existe, agrega ID_CLAVE.
     - Si la clave no existe, marca ES_NUEVA = True.
-    - Si existe pero la descripción no coincide, genera error.
+    - NO se valida la descripción contra base de datos.
+    - La descripción solo se usará posteriormente para insertar claves nuevas.
     """
 
     errores = []
@@ -129,10 +131,7 @@ def validar_claves_contra_catalogo(df, conn):
     catalogo_claves = obtener_claves_catalogo(conn, claves_archivo)
 
     for index, fila in df_validado.iterrows():
-        fila_excel = index + 8
-
         clave = str(fila.get("CLAVE", "")).strip()
-        descripcion_archivo = normalizar_texto(fila.get("DESCRIPCION", ""))
 
         if not clave or clave.lower() == "nan":
             continue
@@ -142,16 +141,6 @@ def validar_claves_contra_catalogo(df, conn):
         if clave_bd:
             df_validado.at[index, "ID_CLAVE"] = clave_bd["id_clave"]
             df_validado.at[index, "ES_NUEVA"] = False
-
-            descripcion_bd = normalizar_texto(clave_bd["descripcion"])
-
-            if descripcion_archivo != descripcion_bd:
-                errores.append(
-                    f"Fila {fila_excel}: la clave '{clave}' ya existe en base de datos, "
-                    f"pero la descripción no coincide. "
-                    f"Archivo: '{descripcion_archivo}' | BD: '{descripcion_bd}'."
-                )
-
         else:
             df_validado.at[index, "ID_CLAVE"] = None
             df_validado.at[index, "ES_NUEVA"] = True
@@ -167,7 +156,7 @@ def validar_claves_contra_catalogo(df, conn):
     }
 
     return {
-        "success": len(errores) == 0,
+        "success": True,
         "df": df_validado,
         "errores": errores,
         "resumen": resumen
