@@ -37,8 +37,6 @@ from modules.configuracion import mostrar_configuracion
 from modules.carga import mostrar_pantalla_carga_archivos
 from modules.carga_catalogos_db import mostrar_carga_catalogos_db
 
-mostrar_pantalla_carga_archivos()
-
 
 def configurar_pagina():
     st.set_page_config(
@@ -64,22 +62,12 @@ def mostrar_menu():
             "Adjudicaciones",
             "Históricos",
             "Catálogos",
+            "Carga de archivos",
+            "Carga de catálogos BD",
             "Usuarios",
             "Reportes",
             "Configuración"
         ]
-        opcion = st.sidebar.selectbox(
-            "Menú SIMI",
-            [
-                "Resumen general",
-                "Análisis por clave",
-                "Análisis por proveedor",
-                "Carga de catálogos"
-            ]
-        )
-
-        if opcion == "Carga de catálogos":
-            mostrar_carga_catalogos_db()
     )
 
 
@@ -112,6 +100,12 @@ def main():
 
     elif opcion == "Catálogos":
         mostrar_catalogos()
+
+    elif opcion == "Carga de archivos":
+        mostrar_pantalla_carga_archivos()
+
+    elif opcion == "Carga de catálogos BD":
+        mostrar_carga_catalogos_db()
 
     elif opcion == "Usuarios":
         mostrar_usuarios()
