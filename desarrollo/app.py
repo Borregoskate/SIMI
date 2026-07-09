@@ -5,7 +5,7 @@ Sistema Inteligente de Mercado e Investigaciones
 
 app.py
 
-Punto de entrada principal del sistema.
+Archivo principal de la aplicación Streamlit.
 
 Autor: Jorge Saavedra
 Versión: 1.0.0
@@ -15,106 +15,76 @@ Versión: 1.0.0
 import streamlit as st
 
 from config.config import (
+    APP_NAME,
+    APP_DESCRIPTION,
     PAGE_TITLE,
     PAGE_ICON,
     LAYOUT,
-    SIDEBAR
+    SIDEBAR,
 )
 
-from core.session import inicializar_sesion
-from modules.dashboard import mostrar_dashboard
-from modules.procedimientos import mostrar_procedimientos
-from modules.investigaciones import mostrar_investigaciones
-from modules.evaluacion import mostrar_evaluacion
-from modules.subasta import mostrar_subasta
-from modules.adjudicaciones import mostrar_adjudicaciones
-from modules.historicos import mostrar_historicos
-from modules.catalogos import mostrar_catalogos
-from modules.usuarios import mostrar_usuarios
-from modules.reportes import mostrar_reportes
-from modules.configuracion import mostrar_configuracion
-
-from modules.carga import mostrar_pantalla_carga_archivos
-from modules.carga_catalogos_db import mostrar_carga_catalogos_db
+from modules.carga_universo import mostrar_carga_universo
 
 
 def configurar_pagina():
+    """
+    Configura la página principal de Streamlit.
+    """
+
     st.set_page_config(
         page_title=PAGE_TITLE,
         page_icon=PAGE_ICON,
         layout=LAYOUT,
-        initial_sidebar_state=SIDEBAR
+        initial_sidebar_state=SIDEBAR,
     )
 
 
-def mostrar_menu():
-    st.sidebar.title("SIMI")
-    st.sidebar.caption("Sistema Inteligente de Mercado e Investigaciones")
+def mostrar_encabezado():
+    """
+    Muestra el encabezado general del sistema.
+    """
 
-    return st.sidebar.radio(
-        "Menú principal",
+    st.title(APP_NAME)
+    st.caption(APP_DESCRIPTION)
+
+
+def mostrar_menu():
+    """
+    Muestra el menú lateral principal.
+    """
+
+    return st.sidebar.selectbox(
+        "Selecciona un módulo",
         [
-            "Dashboard",
-            "Procedimientos",
-            "Investigaciones",
-            "Evaluación técnica",
-            "Subasta privada",
-            "Adjudicaciones",
-            "Históricos",
-            "Catálogos",
-            "Carga de archivos",
-            "Carga de catálogos BD",
-            "Usuarios",
-            "Reportes",
-            "Configuración"
-        ]
+            "Carga 1 — Universo del Procedimiento",
+            "Categorías",
+            "Claves",
+            "Proveedores",
+        ],
     )
 
 
 def main():
+    """
+    Función principal de la aplicación.
+    """
+
     configurar_pagina()
-    inicializar_sesion()
+    mostrar_encabezado()
 
     opcion = mostrar_menu()
 
-    if opcion == "Dashboard":
-        mostrar_dashboard()
+    if opcion == "Carga 1 — Universo del Procedimiento":
+        mostrar_carga_universo()
 
-    elif opcion == "Procedimientos":
-        mostrar_procedimientos()
+    elif opcion == "Categorías":
+        st.info("Módulo de categorías ya existente.")
 
-    elif opcion == "Investigaciones":
-        mostrar_investigaciones()
+    elif opcion == "Claves":
+        st.info("Módulo de claves ya existente.")
 
-    elif opcion == "Evaluación técnica":
-        mostrar_evaluacion()
-
-    elif opcion == "Subasta privada":
-        mostrar_subasta()
-
-    elif opcion == "Adjudicaciones":
-        mostrar_adjudicaciones()
-
-    elif opcion == "Históricos":
-        mostrar_historicos()
-
-    elif opcion == "Catálogos":
-        mostrar_catalogos()
-
-    elif opcion == "Carga de archivos":
-        mostrar_pantalla_carga_archivos()
-
-    elif opcion == "Carga de catálogos BD":
-        mostrar_carga_catalogos_db()
-
-    elif opcion == "Usuarios":
-        mostrar_usuarios()
-
-    elif opcion == "Reportes":
-        mostrar_reportes()
-
-    elif opcion == "Configuración":
-        mostrar_configuracion()
+    elif opcion == "Proveedores":
+        st.info("Módulo de proveedores ya existente.")
 
 
 if __name__ == "__main__":
