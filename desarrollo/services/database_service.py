@@ -13,12 +13,18 @@ Versión: 1.0.0
 """
 
 import os
+import streamlit as st
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
 
 load_dotenv()
 
+def get_config_value(key, default=None):
+    try:
+        return st.secrets[key]
+    except Exception:
+        return os.getenv(key, default)
 
 def get_connection():
     return psycopg2.connect(
@@ -27,6 +33,7 @@ def get_connection():
         database=os.getenv("DB_NAME"),
         user=os.getenv("DB_USER"),
         password=os.getenv("DB_PASSWORD"),
+        sslmode=os.getenv("DB_SSLMODE", "require"),
         cursor_factory=RealDictCursor
     )
 
