@@ -85,7 +85,15 @@ class BaseRepository:
             conn=conn,
             fetch=True
         )
-        return result[0]["exists"] if result else False
+        if not result:
+            return False
+
+        first_row = result[0]
+
+        if isinstance(first_row, dict):
+            return first_row.get("exists", False)
+
+        return first_row[0]
 
     # ==========================================================
     # INSERT / UPDATE / DELETE
