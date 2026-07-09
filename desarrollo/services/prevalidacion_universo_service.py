@@ -21,24 +21,18 @@ import pandas as pd
 
 HOJA_UNIVERSO = "Propuesta Económica"
 
-COLUMNAS_REQUERIDAS = {
-    "CLAVE": "CLAVE",
-    "DESCRIPCION": "DESCRIPCION",
-    "CANTIDAD REQUERIDA": "CANTIDAD_REQUERIDA",
-}
-
 
 def leer_archivo_universo(archivo):
     """
     Lee el archivo Excel de universo del procedimiento.
 
-    La estructura autorizada es:
+    Estructura autorizada:
     - Hoja: Propuesta Económica
     - Encabezados: fila 7
     - Columnas relevantes:
         C = CLAVE
         D = DESCRIPCION
-        H = CANTIDAD REQUERIDA
+        H = CANTIDAD_REQUERIDA opcional
     """
 
     try:
@@ -72,12 +66,17 @@ def limpiar_dataframe_universo(df):
     df = df.copy()
 
     df = df.dropna(
-        subset=["CLAVE", "DESCRIPCION", "CANTIDAD_REQUERIDA"],
+        subset=["CLAVE", "DESCRIPCION"],
         how="all"
     )
 
     df["CLAVE"] = df["CLAVE"].astype(str).str.strip()
     df["DESCRIPCION"] = df["DESCRIPCION"].astype(str).str.strip()
+
+    df["CANTIDAD_REQUERIDA"] = pd.to_numeric(
+        df["CANTIDAD_REQUERIDA"],
+        errors="coerce"
+    )
 
     return df
 
@@ -86,11 +85,11 @@ def prevalidar_universo_procedimiento(archivo):
     """
     Prevalida el archivo de universo del procedimiento.
 
-    Retorna:
-    - valido: bool
-    - dataframe: DataFrame limpio
-    - errores: lista de errores
-    - resumen: dict con métricas generales
+    Reglas actuales:
+    - CLAVE es obligatoria.
+    - DESCRIPCION es obligatoria.
+    - CANTIDAD_REQUERIDA es opcional.
+    - No debe haber claves duplicadas.
     """
 
     errores = []
@@ -118,29 +117,12 @@ def prevalidar_universo_procedimiento(archivo):
 
         clave = row.get("CLAVE")
         descripcion = row.get("DESCRIPCION")
-        cantidad = row.get("CANTIDAD_REQUERIDA")
 
         if not clave or clave.lower() == "nan":
             errores.append(f"Fila {fila_excel}: la clave es obligatoria.")
 
         if not descripcion or descripcion.lower() == "nan":
             errores.append(f"Fila {fila_excel}: la descripción es obligatoria.")
-
-        if pd.isna(cantidad):
-            errores.append(f"Fila {fila_excel}: la cantidad requerida es obligatoria.")
-        else:
-            try:
-                cantidad_num = float(cantidad)
-
-                if cantidad_num <= 0:
-                    errores.append(
-                        f"Fila {fila_excel}: la cantidad requerida debe ser mayor a cero."
-                    )
-
-            except Exception:
-                errores.append(
-                    f"Fila {fila_excel}: la cantidad requerida debe ser numérica."
-                )
 
         if clave and clave.lower() != "nan":
             if clave in claves_vistas:
@@ -156,7 +138,6 @@ def prevalidar_universo_procedimiento(archivo):
         "total_claves_unicas": df["CLAVE"].nunique() if not df.empty else 0,
         "total_duplicados": len(claves_duplicadas),
         "total_errores": len(errores),
-        "cantidad_total_requerida": calcular_cantidad_total(df),
     }
 
     return {
@@ -165,20 +146,3 @@ def prevalidar_universo_procedimiento(archivo):
         "errores": errores,
         "resumen": resumen
     }
-
-
-def calcular_cantidad_total(df):
-    """
-    Calcula la cantidad total requerida del archivo.
-    Si hay valores inválidos, los ignora para el resumen.
-    """
-
-    if df is None or df.empty:
-        return 0
-
-    cantidades = pd.to_numeric(
-        df["CANTIDAD_REQUERIDA"],
-        errors="coerce"
-    )
-
-    return cantidades.sum()
