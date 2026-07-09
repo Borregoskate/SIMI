@@ -1,3 +1,17 @@
+"""
+==============================================================
+SIMI
+Sistema Inteligente de Mercado e Investigaciones
+
+carga_catalogos_db.py
+
+Pantalla para carga de catálogos a base de datos.
+
+Autor: Jorge Saavedra
+Versión: 1.0.0
+==============================================================
+"""
+
 import streamlit as st
 import pandas as pd
 
@@ -12,11 +26,12 @@ def mostrar_resultado_carga(resultado):
     else:
         st.warning("La carga terminó con errores.")
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
 
-    col1.metric("Procesados", resultado["procesados"])
-    col2.metric("Insertados", resultado["insertados"])
-    col3.metric("Actualizados", resultado["actualizados"])
+    col1.metric("Procesados", resultado.get("procesados", 0))
+    col2.metric("Insertados", resultado.get("insertados", 0))
+    col3.metric("Actualizados", resultado.get("actualizados", 0))
+    col4.metric("Omitidos", resultado.get("omitidos", 0))
 
     if resultado.get("errores"):
         st.subheader("Errores encontrados")
@@ -31,17 +46,19 @@ def mostrar_carga_catalogos_db():
         "directamente a PostgreSQL / Supabase."
     )
 
-    tipo_carga = st.selectbox(
+    tipo_carga = st.radio(
         "Selecciona el tipo de catálogo",
         [
-            "Catálogo de claves",
-            "Catálogo de proveedores"
-        ]
+            "Catálogo de proveedores",
+            "Catálogo de claves"
+        ],
+        horizontal=True
     )
 
     archivo = st.file_uploader(
         "Selecciona archivo Excel",
-        type=["xlsx", "xls"]
+        type=["xlsx", "xls"],
+        key=f"archivo_{tipo_carga}"
     )
 
     if archivo is None:
@@ -52,17 +69,20 @@ def mostrar_carga_catalogos_db():
         df = pd.read_excel(archivo)
         df = normalizar_dataframe(df)
 
+        st.subheader("Columnas detectadas")
+        st.code(", ".join(df.columns.tolist()))
+
         st.subheader("Vista previa del archivo")
         st.dataframe(df.head(20), use_container_width=True)
 
-        if st.button("Validar e importar a base de datos"):
+        if st.button("Validar e importar a base de datos", type="primary"):
             with st.spinner("Procesando archivo..."):
 
-                if tipo_carga == "Catálogo de claves":
-                    resultado = cargar_catalogo_claves(df)
-
-                elif tipo_carga == "Catálogo de proveedores":
+                if tipo_carga == "Catálogo de proveedores":
                     resultado = cargar_catalogo_proveedores(df)
+
+                elif tipo_carga == "Catálogo de claves":
+                    resultado = cargar_catalogo_claves(df)
 
                 else:
                     st.error("Tipo de carga no reconocido.")
