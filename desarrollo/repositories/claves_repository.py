@@ -8,7 +8,7 @@ claves_repository.py
 Repositorio para la tabla claves.
 
 Autor: Jorge Saavedra
-Versión: 1.0.0
+Versión: 1.1.0
 ==============================================================
 """
 
@@ -16,9 +16,6 @@ from repositories.base_repository import BaseRepository
 
 
 class ClavesRepository(BaseRepository):
-    """
-    Repositorio para el catálogo de claves.
-    """
 
     def __init__(self):
         super().__init__(
@@ -26,13 +23,10 @@ class ClavesRepository(BaseRepository):
             primary_key="id_clave"
         )
 
-    def get_by_clave(self, clave: str):
-        """
-        Obtiene una clave por su código.
-        """
+    def get_by_clave(self, clave: str, conn=None):
         query = """
             SELECT *
-            FROM claves
+            FROM simi.claves
             WHERE clave = %s
             LIMIT 1;
         """
@@ -40,21 +34,16 @@ class ClavesRepository(BaseRepository):
         result = self.custom_query(
             query,
             params=(clave,),
+            conn=conn,
             fetch=True
         )
 
-        if result:
-            return result[0]
+        return result[0] if result else None
 
-        return None
-
-    def buscar(self, texto: str):
-        """
-        Busca claves por código o descripción.
-        """
+    def buscar(self, texto: str, conn=None):
         query = """
             SELECT *
-            FROM claves
+            FROM simi.claves
             WHERE
                 clave ILIKE %s
                 OR descripcion ILIKE %s
@@ -66,6 +55,7 @@ class ClavesRepository(BaseRepository):
         return self.custom_query(
             query,
             params=(parametro, parametro),
+            conn=conn,
             fetch=True
         )
 
@@ -73,44 +63,33 @@ class ClavesRepository(BaseRepository):
         self,
         clave: str,
         descripcion: str,
-        id_categoria: int = None
+        id_categoria: int = None,
+        conn=None
     ):
-        """
-        Agrega una nueva clave al catálogo.
-        """
         data = {
             "clave": clave,
             "descripcion": descripcion,
             "id_categoria": id_categoria
         }
 
-        return self.insert(data)
+        return self.insert(data, conn=conn)
 
     def actualizar_descripcion(
         self,
         id_clave: int,
-        descripcion: str
+        descripcion: str,
+        conn=None
     ):
-        """
-        Actualiza únicamente la descripción.
-        """
         return self.update(
             record_id=id_clave,
-            data={
-                "descripcion": descripcion
-            }
+            data={"descripcion": descripcion},
+            conn=conn
         )
 
-    def obtener_por_categoria(
-        self,
-        id_categoria: int
-    ):
-        """
-        Obtiene todas las claves de una categoría.
-        """
+    def obtener_por_categoria(self, id_categoria: int, conn=None):
         query = """
             SELECT *
-            FROM claves
+            FROM simi.claves
             WHERE id_categoria = %s
             ORDER BY clave;
         """
@@ -118,14 +97,13 @@ class ClavesRepository(BaseRepository):
         return self.custom_query(
             query,
             params=(id_categoria,),
+            conn=conn,
             fetch=True
         )
 
-    def existe_clave(self, clave: str):
-        """
-        Verifica si una clave ya existe.
-        """
+    def existe_clave(self, clave: str, conn=None):
         return self.exists_by_field(
             "clave",
-            clave
+            clave,
+            conn=conn
         )
