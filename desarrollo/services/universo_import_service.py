@@ -73,7 +73,7 @@ def importar_universo_procedimiento(
         procedimientos_repository = ProcedimientosRepository()
 
         procedimiento_existente = procedimientos_repository.get_by_numero_procedimiento(
-            
+            conn=conn,
             numero_procedimiento=numero_procedimiento
         )
 
@@ -83,7 +83,7 @@ def importar_universo_procedimiento(
             )
 
         procedimiento = procedimientos_repository.crear_procedimiento(
-            
+            conn=conn,
             numero_procedimiento=numero_procedimiento,
             descripcion=descripcion_final,
             ejercicio=ejercicio,
