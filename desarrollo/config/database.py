@@ -15,6 +15,7 @@ Versión: 1.0.0
 import os
 import psycopg2
 from dotenv import load_dotenv
+from psycopg2.extras import RealDictCursor
 
 
 load_dotenv()
@@ -31,5 +32,6 @@ def get_connection():
         database=os.getenv("DB_NAME"),
         user=os.getenv("DB_USER"),
         password=os.getenv("DB_PASSWORD"),
-        options="-c search_path=simi,public"
+        options="-c search_path=simi,public",
+        cursor_factory=RealDictCursor
     )
