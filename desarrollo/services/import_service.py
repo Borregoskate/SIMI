@@ -22,10 +22,19 @@ def normalizar_dataframe(df):
     return df
 
 
+def validar_dataframe_no_vacio(df):
+    if df is None or df.empty:
+        raise ValueError("El archivo no contiene registros para importar.")
+
+
 def validar_columnas_requeridas(df, columnas_requeridas):
+    validar_dataframe_no_vacio(df)
+
+    columnas_df = list(df.columns)
+
     columnas_faltantes = [
         col for col in columnas_requeridas
-        if col not in df.columns
+        if col not in columnas_df
     ]
 
     if columnas_faltantes:
@@ -72,6 +81,16 @@ def limpiar_razon_social(valor):
         return None
 
     return valor.upper()[:255]
+
+
+def limpiar_numero(valor):
+    if pd.isna(valor):
+        return None
+
+    try:
+        return float(valor)
+    except Exception:
+        return None
 
 
 def leer_excel(file, hoja=None):
