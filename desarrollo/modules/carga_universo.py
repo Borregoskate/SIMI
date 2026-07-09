@@ -9,7 +9,7 @@ Módulo visual para la Carga 1:
 Universo del Procedimiento.
 
 Autor: Jorge Saavedra
-Versión: 1.0.0
+Versión: 1.1.0
 ==============================================================
 """
 
@@ -22,10 +22,12 @@ from services.prevalidacion_universo_service import (
     prevalidar_universo_contra_bd
 )
 
+from services.universo_import_service import importar_universo_procedimiento
+
 
 def mostrar_carga_universo():
     """
-    Pantalla de prevalidación para la Carga 1.
+    Pantalla de prevalidación e importación para la Carga 1.
     """
 
     st.title("Carga 1 — Universo del Procedimiento")
@@ -36,8 +38,9 @@ def mostrar_carga_universo():
 
         - Claves
         - Descripciones
+        - Cantidad requerida opcional
 
-        La cantidad requerida es opcional y no bloquea la carga.
+        La cantidad requerida no bloquea la carga.
         """
     )
 
@@ -145,32 +148,7 @@ def mostrar_carga_universo():
         if conn is not None:
             conn.close()
 
-    if resultado_bd["success"]:
-        st.success(
-            "La prevalidación contra base de datos fue correcta."
-        )
-
-        resumen_bd = resultado_bd["resumen"]
-
-        col1, col2, col3, col4 = st.columns(4)
-
-        col1.metric("Registros", resumen_bd["total_registros"])
-        col2.metric("Claves existentes", resumen_bd["claves_existentes"])
-        col3.metric("Claves nuevas", resumen_bd["claves_nuevas"])
-        col4.metric("Errores BD", resumen_bd["errores"])
-
-        st.subheader("Vista previa enriquecida")
-
-        st.dataframe(
-            resultado_bd["df"],
-            use_container_width=True
-        )
-
-        st.info(
-            "El archivo está listo para la siguiente etapa: inserción en base de datos."
-        )
-
-    else:
+    if not resultado_bd["success"]:
         st.error(
             "Se encontraron errores contra la base de datos."
         )
@@ -179,8 +157,95 @@ def mostrar_carga_universo():
             st.warning(error)
 
         st.subheader("Vista previa con validación contra BD")
-
         st.dataframe(
             resultado_bd["df"],
             use_container_width=True
         )
+
+        return
+
+    st.success(
+        "La prevalidación contra base de datos fue correcta."
+    )
+
+    resumen_bd = resultado_bd["resumen"]
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    col1.metric("Registros", resumen_bd["total_registros"])
+    col2.metric("Claves existentes", resumen_bd["claves_existentes"])
+    col3.metric("Claves nuevas", resumen_bd["claves_nuevas"])
+    col4.metric("Errores BD", resumen_bd["errores"])
+
+    st.subheader("Vista previa enriquecida")
+    st.dataframe(
+        resultado_bd["df"],
+        use_container_width=True
+    )
+
+    st.info(
+        "El archivo está listo para importarse en la base de datos."
+    )
+
+    st.divider()
+
+    st.subheader("Importación definitiva")
+
+    confirmar = st.checkbox(
+        "Confirmo que deseo importar este universo a la base de datos."
+    )
+
+    if not confirmar:
+        return
+
+    if st.button("Importar universo del procedimiento"):
+        with st.spinner("Importando universo del procedimiento..."):
+            resultado_importacion = importar_universo_procedimiento(
+                df=resultado["dataframe"],
+                numero_procedimiento=numero_procedimiento,
+                tipo_procedimiento=tipo_procedimiento,
+                ejercicio=ejercicio,
+                descripcion=descripcion
+            )
+
+        if resultado_importacion["success"]:
+            st.success(
+                "La Carga 1 fue importada correctamente."
+            )
+
+            col1, col2, col3, col4 = st.columns(4)
+
+            col1.metric(
+                "Procesados",
+                resultado_importacion["procesados"]
+            )
+            col2.metric(
+                "Insertados",
+                resultado_importacion["insertados"]
+            )
+            col3.metric(
+                "Actualizados",
+                resultado_importacion["actualizados"]
+            )
+            col4.metric(
+                "Omitidos",
+                resultado_importacion["omitidos"]
+            )
+
+            st.info(
+                f"Procedimiento creado con ID: {resultado_importacion['id_procedimiento']}"
+            )
+
+            if resultado_importacion.get("advertencias"):
+                st.warning("La importación generó advertencias.")
+
+                for advertencia in resultado_importacion["advertencias"]:
+                    st.write(advertencia)
+
+        else:
+            st.error(
+                "La importación no pudo completarse."
+            )
+
+            for error in resultado_importacion["errores"]:
+                st.warning(error)
