@@ -12,42 +12,46 @@ Versión: 1.0.0
 ==============================================================
 """
 
-from config.database import get_connection
+import os
+import psycopg2
+from psycopg2.extras import RealDictCursor
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
-def execute_query(query, params=None, fetch=False):
-    connection = None
-    cursor = None
+def get_connection():
+    return psycopg2.connect(
+        host=os.getenv("DB_HOST"),
+        port=os.getenv("DB_PORT"),
+        database=os.getenv("DB_NAME"),
+        user=os.getenv("DB_USER"),
+        password=os.getenv("DB_PASSWORD"),
+        cursor_factory=RealDictCursor
+    )
 
+
+def execute_query(query, params=None, fetchone=False, fetchall=False):
+    conn = None
     try:
-        connection = get_connection()
-        cursor = connection.cursor()
+        conn = get_connection()
+        with conn.cursor() as cursor:
+            cursor.execute(query, params)
 
-        cursor.execute(query, params)
+            result = None
+            if fetchone:
+                result = cursor.fetchone()
+            elif fetchall:
+                result = cursor.fetchall()
 
-        if fetch:
-            columns = [desc[0] for desc in cursor.description]
-            results = [
-                dict(zip(columns, row))
-                for row in cursor.fetchall()
-            ]
-            connection.commit()
-            return results
+            conn.commit()
+            return result
 
-        connection.commit()
-        return None
-
-    except Exception as error:
-        if connection:
-            connection.rollback()
-
-        print("Error ejecutando consulta:")
-        print(error)
-        raise error
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        raise e
 
     finally:
-        if cursor:
-            cursor.close()
-
-        if connection:
-            connection.close()
+        if conn:
+            conn.close()
