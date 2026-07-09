@@ -17,6 +17,10 @@ Versión: 1.0.0
 """
 
 import pandas as pd
+from services.validacion_catalogos_service import (
+    validar_claves_contra_catalogo,
+    validar_procedimiento_existente
+)
 
 
 HOJA_UNIVERSO = "Propuesta Económica"
@@ -146,3 +150,57 @@ def prevalidar_universo_procedimiento(archivo):
         "errores": errores,
         "resumen": resumen
     }
+    
+    def prevalidar_universo_contra_bd(df, conn, numero_procedimiento):
+        """
+        Ejecuta la prevalidación del universo contra base de datos.
+
+        Validaciones:
+        - El procedimiento no debe existir previamente.
+        - Las claves existentes deben coincidir con su descripción en catálogo.
+        - Las claves nuevas se marcan para futura inserción.
+        - Se agregan columnas ID_CLAVE y ES_NUEVA.
+
+        Este proceso NO inserta datos.
+        """
+
+        errores = []
+
+        validacion_procedimiento = validar_procedimiento_existente(
+            conn=conn,
+            numero_procedimiento=numero_procedimiento
+        )
+
+        if validacion_procedimiento["existe"]:
+            errores.append({
+                "fila": None,
+                "columna": "numero_procedimiento",
+                "valor": numero_procedimiento,
+                "error": "El procedimiento ya existe en base de datos."
+            })
+
+            return {
+                "success": False,
+                "df": df,
+                "errores": errores,
+                "resumen": {
+                    "total_registros": len(df),
+                    "claves_existentes": 0,
+                    "claves_nuevas": 0,
+                    "errores": len(errores)
+                }
+            }
+
+        resultado_claves = validar_claves_contra_catalogo(
+            df=df,
+            conn=conn
+        )
+
+        errores.extend(resultado_claves["errores"])
+
+        return {
+            "success": len(errores) == 0,
+            "df": resultado_claves["df"],
+            "errores": errores,
+            "resumen": resultado_claves["resumen"]
+        }
