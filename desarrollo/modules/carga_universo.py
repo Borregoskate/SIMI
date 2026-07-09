@@ -87,10 +87,8 @@ def mostrar_carga_universo():
             col1.metric("Registros", resumen["total_registros"])
             col2.metric("Claves únicas", resumen["total_claves_unicas"])
             col3.metric("Duplicados", resumen["total_duplicados"])
-            col4.metric(
-                "Cantidad total",
-                f"{resumen['cantidad_total_requerida']:,.2f}"
-            )
+            col4.metric("Errores", resumen["total_errores"])
+            
 
             st.subheader("Vista previa")
 
