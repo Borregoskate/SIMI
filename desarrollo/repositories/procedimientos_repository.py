@@ -8,28 +8,19 @@ procedimientos_repository.py
 Repositorio para la tabla procedimientos.
 
 Autor: Jorge Saavedra
-Versión: 1.0.0
+Versión: 1.1.0
 ==============================================================
 """
 
-from repositories.base_repository import BaseRepository
+from psycopg2.extras import RealDictCursor
 
 
-class ProcedimientosRepository(BaseRepository):
+class ProcedimientosRepository:
     """
     Repositorio específico para procedimientos.
     """
 
-    def __init__(self):
-        super().__init__(
-            table_name="procedimientos",
-            primary_key="id_procedimiento"
-        )
-
-    def get_activos(self):
-        """
-        Obtiene todos los procedimientos activos.
-        """
+    def get_activos(self, conn):
         query = """
             SELECT *
             FROM procedimientos
@@ -37,12 +28,11 @@ class ProcedimientosRepository(BaseRepository):
             ORDER BY fecha_creacion DESC, id_procedimiento DESC;
         """
 
-        return self.custom_query(query, fetch=True)
+        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            cursor.execute(query)
+            return cursor.fetchall()
 
-    def get_by_numero_procedimiento(self, numero_procedimiento: str):
-        """
-        Obtiene un procedimiento por número o nombre de procedimiento.
-        """
+    def get_by_numero_procedimiento(self, conn, numero_procedimiento: str):
         query = """
             SELECT *
             FROM procedimientos
@@ -50,41 +40,49 @@ class ProcedimientosRepository(BaseRepository):
             LIMIT 1;
         """
 
-        result = self.custom_query(
-            query,
-            params=(numero_procedimiento,),
-            fetch=True
-        )
-
-        if result:
-            return result[0]
-
-        return None
+        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            cursor.execute(query, (numero_procedimiento,))
+            return cursor.fetchone()
 
     def crear_procedimiento(
         self,
+        conn,
         numero_procedimiento: str,
         descripcion: str | None,
         ejercicio: int,
         activo: bool = True
     ):
+        query = """
+            INSERT INTO procedimientos (
+                numero_procedimiento,
+                descripcion,
+                ejercicio,
+                activo
+            )
+            VALUES (%s, %s, %s, %s)
+            RETURNING *;
         """
-        Crea un nuevo procedimiento.
-        """
-        data = {
-            "numero_procedimiento": numero_procedimiento,
-            "descripcion": descripcion,
-            "ejercicio": ejercicio,
-            "activo": activo
-        }
 
-        return self.insert(data)
+        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            cursor.execute(
+                query,
+                (
+                    numero_procedimiento,
+                    descripcion,
+                    ejercicio,
+                    activo
+                )
+            )
+            return cursor.fetchone()
 
-    def desactivar(self, id_procedimiento: int):
+    def desactivar(self, conn, id_procedimiento: int):
+        query = """
+            UPDATE procedimientos
+            SET activo = FALSE
+            WHERE id_procedimiento = %s
+            RETURNING *;
         """
-        Desactiva un procedimiento sin eliminarlo físicamente.
-        """
-        return self.update(
-            record_id=id_procedimiento,
-            data={"activo": False}
-        )
+
+        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            cursor.execute(query, (id_procedimiento,))
+            return cursor.fetchone()
