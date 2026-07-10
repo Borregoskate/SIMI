@@ -101,10 +101,13 @@ def mostrar_carga_propuestas():
         try:
             resultado_importacion = procesar_dataframe(
                 df=df_propuestas,
+                tabla="propuestas",
                 columnas_requeridas=COLUMNAS_REQUERIDAS_CARGA_PROPUESTAS,
                 funcion_procesar_fila=procesar_fila_propuesta,
+                fila_inicial_excel=2,
                 conn=conn,
-                id_procedimiento=id_procedimiento
+                id_procedimiento=id_procedimiento,
+                usar_transaccion=True
             )
 
             st.success("Importación finalizada.")
