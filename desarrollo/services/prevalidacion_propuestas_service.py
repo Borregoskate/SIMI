@@ -9,11 +9,15 @@ Servicio de prevalidación para la Carga 2:
 Propuestas Iniciales.
 
 Este servicio NO inserta datos en base de datos.
-Solo normaliza, valida estructura, contenido y duplicados
-del archivo Excel.
+Lee, normaliza y valida el archivo antes de la importación.
+
+Formato oficial de Carga 2:
+- Una sola hoja.
+- Encabezados en la primera fila.
+- Una fila representa una propuesta por proveedor y clave.
 
 Autor: Jorge Saavedra
-Versión: 1.0.0
+Versión: 1.1.0
 ==============================================================
 """
 
@@ -24,10 +28,15 @@ from utils.normalizadores import (
     normalizar_rfc,
     normalizar_razon_social,
     normalizar_clave,
+    normalizar_texto,
     normalizar_pais,
     normalizar_decimal
 )
 
+
+# ==========================================================
+# COLUMNAS OFICIALES DEL ARCHIVO
+# ==========================================================
 
 COLUMNAS_REQUERIDAS_PROPUESTAS = {
     "RFC": "RFC",
@@ -40,34 +49,50 @@ COLUMNAS_REQUERIDAS_PROPUESTAS = {
 }
 
 
+# ==========================================================
+# NORMALIZADORES POR COLUMNA
+# ==========================================================
+
 NORMALIZADORES_PROPUESTAS = {
     "RFC": normalizar_rfc,
     "RAZON SOCIAL": normalizar_razon_social,
     "CLAVE": normalizar_clave,
-    "PAIS DE ORIGEN": normalizar_pais,
+    "DESCRIPCION": normalizar_texto,
     "CANTIDAD OFERTADA": normalizar_decimal,
+    "PAIS DE ORIGEN": normalizar_pais,
     "PRECIO UNITARIO": normalizar_decimal,
 }
 
+
+# ==========================================================
+# LECTURA DEL ARCHIVO
+# ==========================================================
 
 def leer_archivo_propuestas(archivo):
     """
     Lee el archivo Excel de propuestas iniciales.
 
-    Se asume la misma estructura base:
-    hoja 'Propuesta Económica' con encabezados en fila 7.
+    Reglas del formato:
+    - El archivo contiene una sola hoja.
+    - Los encabezados están en la primera fila.
     """
+
+    archivo.seek(0)
 
     return pd.read_excel(
         archivo,
-        sheet_name="Propuesta Económica",
-        header=6
+        sheet_name=0,
+        header=0
     )
 
 
+# ==========================================================
+# NORMALIZACIÓN
+# ==========================================================
+
 def normalizar_archivo_propuestas(df):
     """
-    Normaliza las columnas relevantes antes de validar.
+    Normaliza los datos antes de ejecutar las validaciones.
     """
 
     return normalizar_dataframe(
@@ -76,15 +101,23 @@ def normalizar_archivo_propuestas(df):
     )
 
 
+# ==========================================================
+# VALIDACIÓN DE COLUMNAS
+# ==========================================================
+
 def validar_columnas_requeridas_propuestas(df):
     """
-    Valida que el archivo contenga las columnas requeridas.
+    Valida que estén presentes todas las columnas oficiales.
     """
 
-    columnas_archivo = list(df.columns)
     errores = []
 
-    for columna in COLUMNAS_REQUERIDAS_PROPUESTAS.keys():
+    columnas_archivo = {
+        str(columna).strip().upper()
+        for columna in df.columns
+    }
+
+    for columna in COLUMNAS_REQUERIDAS_PROPUESTAS:
         if columna not in columnas_archivo:
             errores.append({
                 "fila": None,
@@ -94,32 +127,50 @@ def validar_columnas_requeridas_propuestas(df):
     return errores
 
 
+# ==========================================================
+# PREPARACIÓN DEL DATAFRAME
+# ==========================================================
+
 def preparar_dataframe_propuestas(df):
     """
-    Conserva y renombra únicamente las columnas necesarias.
+    Conserva las columnas oficiales y las renombra para uso
+    interno dentro de los servicios de SIMI.
     """
 
-    df_trabajo = df[list(COLUMNAS_REQUERIDAS_PROPUESTAS.keys())].copy()
+    df_trabajo = df[
+        list(COLUMNAS_REQUERIDAS_PROPUESTAS.keys())
+    ].copy()
+
     df_trabajo = df_trabajo.rename(
         columns=COLUMNAS_REQUERIDAS_PROPUESTAS
     )
 
+    # Elimina filas completamente vacías.
+    df_trabajo = df_trabajo.dropna(how="all")
+
     return df_trabajo
 
 
+# ==========================================================
+# VALIDACIÓN DEL CONTENIDO
+# ==========================================================
+
 def validar_contenido_propuestas(df):
     """
-    Valida contenido obligatorio y reglas básicas de negocio.
+    Valida campos obligatorios y reglas numéricas.
     """
 
     errores = []
 
     for index, fila in df.iterrows():
-        numero_fila_excel = index + 8
+        # Encabezados en fila 1, por lo que el primer registro
+        # corresponde a la fila 2 de Excel.
+        numero_fila_excel = index + 2
 
         rfc = fila.get("RFC")
         razon_social = fila.get("RAZON_SOCIAL")
         clave = fila.get("CLAVE")
+        descripcion = fila.get("DESCRIPCION")
         cantidad_ofertada = fila.get("CANTIDAD_OFERTADA")
         pais_origen = fila.get("PAIS_ORIGEN")
         precio_unitario = fila.get("PRECIO_UNITARIO")
@@ -142,6 +193,12 @@ def validar_contenido_propuestas(df):
                 "error": "La clave es obligatoria."
             })
 
+        if not descripcion:
+            errores.append({
+                "fila": numero_fila_excel,
+                "error": "La descripción es obligatoria."
+            })
+
         if cantidad_ofertada is None:
             errores.append({
                 "fila": numero_fila_excel,
@@ -150,7 +207,9 @@ def validar_contenido_propuestas(df):
         elif cantidad_ofertada <= 0:
             errores.append({
                 "fila": numero_fila_excel,
-                "error": "La cantidad ofertada debe ser mayor a cero."
+                "error": (
+                    "La cantidad ofertada debe ser mayor a cero."
+                )
             })
 
         if not pais_origen:
@@ -167,59 +226,96 @@ def validar_contenido_propuestas(df):
         elif precio_unitario <= 0:
             errores.append({
                 "fila": numero_fila_excel,
-                "error": "El precio unitario debe ser mayor a cero."
+                "error": (
+                    "El precio unitario debe ser mayor a cero."
+                )
             })
 
     return errores
 
 
+# ==========================================================
+# VALIDACIÓN DE DUPLICADOS
+# ==========================================================
+
 def validar_duplicados_propuestas(df):
     """
-    Valida duplicados dentro del archivo.
-
-    No debe existir más de una propuesta inicial para
-    el mismo RFC y la misma clave dentro del mismo archivo.
+    Valida que no exista más de una propuesta para el mismo
+    RFC y la misma clave dentro del archivo.
     """
 
     errores = []
 
-    duplicados = df[df.duplicated(
-        subset=["RFC", "CLAVE"],
-        keep=False
-    )]
+    filas_validas = df[
+        df["RFC"].notna()
+        & df["CLAVE"].notna()
+    ]
+
+    duplicados = filas_validas[
+        filas_validas.duplicated(
+            subset=["RFC", "CLAVE"],
+            keep=False
+        )
+    ]
 
     for index, fila in duplicados.iterrows():
-        numero_fila_excel = index + 8
+        numero_fila_excel = index + 2
 
         errores.append({
             "fila": numero_fila_excel,
             "error": (
-                f"Propuesta duplicada en el archivo para RFC {fila.get('RFC')} "
-                f"y clave {fila.get('CLAVE')}."
+                f"Propuesta duplicada para el RFC "
+                f"{fila.get('RFC')} y la clave "
+                f"{fila.get('CLAVE')}."
             )
         })
 
     return errores
 
 
+# ==========================================================
+# PREVALIDACIÓN GENERAL
+# ==========================================================
+
 def prevalidar_archivo_propuestas(archivo):
     """
-    Ejecuta la prevalidación completa del archivo de propuestas.
+    Ejecuta la prevalidación completa de Carga 2.
 
-    Flujo oficial:
-    1. Leer Excel
-    2. Validar columnas originales
-    3. Normalizar datos
-    4. Preparar DataFrame
-    5. Validar contenido
-    6. Validar duplicados
+    Flujo:
+    1. Leer la única hoja.
+    2. Usar encabezados de la primera fila.
+    3. Estandarizar nombres de columnas.
+    4. Validar columnas requeridas.
+    5. Normalizar los datos.
+    6. Preparar el DataFrame.
+    7. Validar contenido.
+    8. Validar duplicados.
     """
 
-    df_original = leer_archivo_propuestas(archivo)
+    try:
+        df_original = leer_archivo_propuestas(archivo)
+    except Exception as error:
+        return {
+            "valido": False,
+            "errores": [{
+                "fila": None,
+                "error": (
+                    "No fue posible leer el archivo Excel: "
+                    f"{error}"
+                )
+            }],
+            "df": None
+        }
 
-    errores = []
+    # Normaliza los nombres de columnas.
+    df_original.columns = [
+        str(columna).strip().upper()
+        for columna in df_original.columns
+    ]
 
-    errores_columnas = validar_columnas_requeridas_propuestas(df_original)
+    errores_columnas = (
+        validar_columnas_requeridas_propuestas(df_original)
+    )
 
     if errores_columnas:
         return {
@@ -228,8 +324,15 @@ def prevalidar_archivo_propuestas(archivo):
             "df": None
         }
 
-    df_normalizado = normalizar_archivo_propuestas(df_original)
-    df_preparado = preparar_dataframe_propuestas(df_normalizado)
+    df_normalizado = normalizar_archivo_propuestas(
+        df_original
+    )
+
+    df_preparado = preparar_dataframe_propuestas(
+        df_normalizado
+    )
+
+    errores = []
 
     errores.extend(
         validar_contenido_propuestas(df_preparado)
@@ -239,15 +342,8 @@ def prevalidar_archivo_propuestas(archivo):
         validar_duplicados_propuestas(df_preparado)
     )
 
-    if errores:
-        return {
-            "valido": False,
-            "errores": errores,
-            "df": df_preparado
-        }
-
     return {
-        "valido": True,
-        "errores": [],
+        "valido": len(errores) == 0,
+        "errores": errores,
         "df": df_preparado
     }
