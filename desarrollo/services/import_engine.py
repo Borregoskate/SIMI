@@ -12,14 +12,14 @@ por fila, utilizando conexión, contexto y parámetros
 adicionales de cada tipo de carga.
 
 Autor: Jorge Saavedra
-Versión: 1.2.0
+Versión: 1.3.0
 ==============================================================
 """
 
 from services.import_service import validar_columnas_requeridas
 
 
-def crear_resultado_importacion(tabla):
+def crear_resultado_importacion(tabla="importacion"):
     """
     Crea la estructura estándar del resultado de importación.
     """
@@ -62,9 +62,9 @@ def agregar_advertencia(resultado, fila, advertencia):
 
 def procesar_dataframe(
     df,
-    tabla,
     columnas_requeridas,
     funcion_procesar_fila,
+    tabla="importacion",
     fila_inicial_excel=2,
     conn=None,
     contexto=None,
@@ -75,19 +75,25 @@ def procesar_dataframe(
     """
     Procesa un DataFrame usando una función específica por fila.
 
-    La función procesadora puede recibir:
+    Parámetros:
+    - df: DataFrame que se procesará.
+    - columnas_requeridas: columnas obligatorias.
+    - funcion_procesar_fila: función particular de cada carga.
+    - tabla: nombre lógico de la tabla o proceso.
+    - fila_inicial_excel: número de la primera fila de datos.
+    - conn: conexión activa a PostgreSQL.
+    - contexto: información general opcional.
+    - usar_transaccion: activa commit o rollback general.
+    - detener_en_error: detiene el ciclo ante el primer error.
+    - **kwargs: parámetros adicionales de cada carga.
 
+    La función procesadora puede recibir:
     - row
     - row, conn
     - row, conn, contexto
-    - row, conn y parámetros adicionales mediante **kwargs
+    - row, conn y argumentos adicionales
 
-    Ejemplo de parámetros adicionales:
-
-        id_procedimiento=1
-
-    La función específica debe devolver:
-
+    Debe devolver:
     {
         "accion": "insertado" | "actualizado" | "omitido",
         "advertencia": "mensaje opcional"
@@ -96,13 +102,27 @@ def procesar_dataframe(
 
     resultado = crear_resultado_importacion(tabla)
 
+    if funcion_procesar_fila is None:
+        agregar_error(
+            resultado,
+            None,
+            "No se recibió la función de procesamiento por fila."
+        )
+        return resultado
+
     try:
         validar_columnas_requeridas(
             df,
             columnas_requeridas
         )
 
-        if usar_transaccion and conn:
+        if usar_transaccion and conn is None:
+            raise ValueError(
+                "Se solicitó una transacción, pero no se recibió "
+                "una conexión activa."
+            )
+
+        if usar_transaccion:
             conn.autocommit = False
 
         for index, row in df.iterrows():
@@ -114,7 +134,7 @@ def procesar_dataframe(
                     row=row,
                     conn=conn,
                     contexto=contexto,
-                    kwargs=kwargs
+                    parametros_adicionales=kwargs
                 )
 
                 _interpretar_respuesta(
@@ -133,21 +153,40 @@ def procesar_dataframe(
                 if detener_en_error:
                     raise
 
-        if usar_transaccion and conn:
+        if usar_transaccion:
             if resultado["success"]:
                 conn.commit()
             else:
                 conn.rollback()
 
+                # Si hubo rollback, ningún registro quedó guardado.
+                resultado["procesados"] = 0
+                resultado["insertados"] = 0
+                resultado["actualizados"] = 0
+                resultado["omitidos"] = 0
+
     except Exception as error:
-        agregar_error(
-            resultado=resultado,
-            fila=None,
-            error=error
-        )
+        # Evita registrar dos veces el mismo error cuando
+        # detener_en_error=True.
+        mensaje = str(error)
+
+        if not any(
+            item.get("error") == mensaje
+            for item in resultado["errores"]
+        ):
+            agregar_error(
+                resultado=resultado,
+                fila=None,
+                error=error
+            )
 
         if usar_transaccion and conn:
             conn.rollback()
+
+            resultado["procesados"] = 0
+            resultado["insertados"] = 0
+            resultado["actualizados"] = 0
+            resultado["omitidos"] = 0
 
     return resultado
 
@@ -157,70 +196,43 @@ def _ejecutar_funcion_procesar_fila(
     row,
     conn=None,
     contexto=None,
-    kwargs=None
+    parametros_adicionales=None
 ):
     """
     Ejecuta la función específica de procesamiento.
 
     Mantiene compatibilidad con las cargas anteriores y
-    permite enviar argumentos adicionales para cargas nuevas.
+    permite argumentos adicionales para las cargas nuevas.
     """
 
-    kwargs = kwargs or {}
+    parametros_adicionales = parametros_adicionales or {}
 
-    # Conexión, contexto y parámetros adicionales.
-    if conn is not None and contexto is not None and kwargs:
-        return funcion_procesar_fila(
-            row,
-            conn,
-            contexto,
-            **kwargs
-        )
-
-    # Conexión y parámetros adicionales.
-    if conn is not None and kwargs:
-        return funcion_procesar_fila(
-            row,
-            conn,
-            **kwargs
-        )
-
-    # Contexto y parámetros adicionales, sin conexión.
-    if contexto is not None and kwargs:
-        return funcion_procesar_fila(
-            row,
-            contexto=contexto,
-            **kwargs
-        )
-
-    # Únicamente parámetros adicionales.
-    if kwargs:
-        return funcion_procesar_fila(
-            row,
-            **kwargs
-        )
-
-    # Compatibilidad con el funcionamiento anterior.
     if conn is not None and contexto is not None:
         return funcion_procesar_fila(
             row,
             conn,
-            contexto
+            contexto,
+            **parametros_adicionales
         )
 
     if conn is not None:
         return funcion_procesar_fila(
             row,
-            conn
+            conn,
+            **parametros_adicionales
         )
 
     if contexto is not None:
         return funcion_procesar_fila(
             row,
-            contexto
+            contexto=contexto,
+            **parametros_adicionales
         )
 
-    return funcion_procesar_fila(row)
+    return funcion_procesar_fila(
+        row,
+        **parametros_adicionales
+    )
 
 
 def _interpretar_respuesta(
@@ -229,14 +241,19 @@ def _interpretar_respuesta(
     fila_excel
 ):
     """
-    Interpreta la respuesta devuelta por el procesamiento
-    específico de cada fila.
+    Interpreta la respuesta del procesamiento de una fila.
     """
 
     if not respuesta:
         respuesta = {
             "accion": "omitido"
         }
+
+    if not isinstance(respuesta, dict):
+        raise ValueError(
+            "La función de procesamiento debe devolver "
+            "un diccionario."
+        )
 
     accion = respuesta.get("accion")
 
@@ -257,7 +274,10 @@ def _interpretar_respuesta(
             "una acción válida."
         )
 
-    advertencia = respuesta.get("advertencia")
+    advertencia = (
+        respuesta.get("advertencia")
+        or respuesta.get("mensaje")
+    )
 
     if advertencia:
         agregar_advertencia(
