@@ -24,6 +24,7 @@ from config.config import (
 )
 
 from modules.carga_universo import mostrar_carga_universo
+from modules.carga_propuestas import mostrar_carga_propuestas
 
 
 def configurar_pagina():
@@ -85,6 +86,9 @@ def main():
 
     elif opcion == "Proveedores":
         st.info("Módulo de proveedores ya existente.")
+        
+    elif opcion == "Carga 2 - Propuestas Iniciales":
+        mostrar_carga_propuestas()
 
 
 if __name__ == "__main__":
