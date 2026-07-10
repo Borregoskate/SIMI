@@ -61,6 +61,7 @@ def mostrar_menu():
             "Categorías",
             "Claves",
             "Proveedores",
+            "Carga 2 - Propuestas Iniciales",
         ],
     )
 
@@ -86,7 +87,7 @@ def main():
 
     elif opcion == "Proveedores":
         st.info("Módulo de proveedores ya existente.")
-        
+
     elif opcion == "Carga 2 - Propuestas Iniciales":
         mostrar_carga_propuestas()
 
