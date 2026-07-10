@@ -8,7 +8,7 @@ claves_repository.py
 Repositorio para la tabla claves.
 
 Autor: Jorge Saavedra
-Versión: 1.1.0
+Versión: 1.2.0
 ==============================================================
 """
 
@@ -107,3 +107,42 @@ class ClavesRepository(BaseRepository):
             clave,
             conn=conn
         )
+
+    def get_procedimiento_clave(
+        self,
+        id_procedimiento: int,
+        clave: str,
+        conn=None
+    ):
+        """
+        Obtiene la relación procedimiento_claves a partir
+        del procedimiento y la clave textual.
+
+        Se usa en Carga 2 para validar que la clave ofertada
+        pertenezca al universo del procedimiento seleccionado.
+        """
+
+        query = """
+            SELECT
+                pc.id_procedimiento_clave,
+                pc.id_procedimiento,
+                pc.id_clave,
+                pc.cantidad_requerida,
+                c.clave,
+                c.descripcion
+            FROM simi.procedimiento_claves pc
+            INNER JOIN simi.claves c
+                ON c.id_clave = pc.id_clave
+            WHERE pc.id_procedimiento = %s
+              AND c.clave = %s
+            LIMIT 1;
+        """
+
+        result = self.custom_query(
+            query,
+            params=(id_procedimiento, clave),
+            conn=conn,
+            fetch=True
+        )
+
+        return result[0] if result else None

@@ -8,7 +8,7 @@ proveedores_repository.py
 Repositorio para la tabla proveedores.
 
 Autor: Jorge Saavedra
-Versión: 1.0.0
+Versión: 1.1.0
 ==============================================================
 """
 
@@ -26,13 +26,10 @@ class ProveedoresRepository(BaseRepository):
             primary_key="id_proveedor"
         )
 
-    def get_by_rfc(self, rfc: str):
-        """
-        Obtiene un proveedor por RFC.
-        """
+    def get_by_rfc(self, rfc: str, conn=None):
         query = """
             SELECT *
-            FROM proveedores
+            FROM simi.proveedores
             WHERE rfc = %s
             LIMIT 1;
         """
@@ -40,21 +37,16 @@ class ProveedoresRepository(BaseRepository):
         result = self.custom_query(
             query,
             params=(rfc,),
+            conn=conn,
             fetch=True
         )
 
-        if result:
-            return result[0]
+        return result[0] if result else None
 
-        return None
-
-    def get_by_razon_social(self, razon_social: str):
-        """
-        Obtiene un proveedor por razón social.
-        """
+    def get_by_razon_social(self, razon_social: str, conn=None):
         query = """
             SELECT *
-            FROM proveedores
+            FROM simi.proveedores
             WHERE UPPER(razon_social) = UPPER(%s)
             LIMIT 1;
         """
@@ -62,21 +54,16 @@ class ProveedoresRepository(BaseRepository):
         result = self.custom_query(
             query,
             params=(razon_social,),
+            conn=conn,
             fetch=True
         )
 
-        if result:
-            return result[0]
+        return result[0] if result else None
 
-        return None
-
-    def buscar(self, texto: str):
-        """
-        Busca proveedores por RFC o razón social.
-        """
+    def buscar(self, texto: str, conn=None):
         query = """
             SELECT *
-            FROM proveedores
+            FROM simi.proveedores
             WHERE
                 rfc ILIKE %s
                 OR razon_social ILIKE %s
@@ -88,56 +75,37 @@ class ProveedoresRepository(BaseRepository):
         return self.custom_query(
             query,
             params=(parametro, parametro),
+            conn=conn,
             fetch=True
         )
 
-    def crear_proveedor(
-        self,
-        rfc: str,
-        razon_social: str
-    ):
-        """
-        Inserta un nuevo proveedor.
-        """
+    def crear_proveedor(self, rfc: str, razon_social: str, conn=None):
         data = {
             "rfc": rfc,
             "razon_social": razon_social
         }
 
-        return self.insert(data)
+        return self.insert(data, conn=conn)
 
-    def actualizar_razon_social(
-        self,
-        id_proveedor: int,
-        razon_social: str
-    ):
-        """
-        Actualiza la razón social del proveedor.
-        """
+    def actualizar_razon_social(self, id_proveedor: int, razon_social: str, conn=None):
         return self.update(
             record_id=id_proveedor,
-            data={
-                "razon_social": razon_social
-            }
+            data={"razon_social": razon_social},
+            conn=conn
         )
 
-    def existe_rfc(self, rfc: str):
-        """
-        Verifica si un RFC ya existe.
-        """
+    def existe_rfc(self, rfc: str, conn=None):
         return self.exists_by_field(
             "rfc",
-            rfc
+            rfc,
+            conn=conn
         )
 
-    def existe_razon_social(self, razon_social: str):
-        """
-        Verifica si una razón social ya existe.
-        """
+    def existe_razon_social(self, razon_social: str, conn=None):
         query = """
             SELECT EXISTS(
                 SELECT 1
-                FROM proveedores
+                FROM simi.proveedores
                 WHERE UPPER(razon_social) = UPPER(%s)
             ) AS existe;
         """
@@ -145,10 +113,8 @@ class ProveedoresRepository(BaseRepository):
         result = self.custom_query(
             query,
             params=(razon_social,),
+            conn=conn,
             fetch=True
         )
 
-        if result:
-            return result[0]["existe"]
-
-        return False
+        return result[0]["existe"] if result else False
