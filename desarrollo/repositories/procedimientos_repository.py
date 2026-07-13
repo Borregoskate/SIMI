@@ -5,10 +5,20 @@ Sistema Inteligente de Mercado e Investigaciones
 
 procedimientos_repository.py
 
-Repositorio para la tabla procedimientos.
+Repositorio para la tabla simi.procedimientos.
+
+Responsabilidades:
+
+- Consultar procedimientos.
+- Crear procedimientos.
+- Activar o desactivar procedimientos.
+- Delegar toda ejecución SQL a BaseRepository.
+
+Este Repository recibe datos previamente normalizados,
+validados y verificados por la capa Service.
 
 Autor: Jorge Saavedra
-Versión: 1.1.0
+Versión: 1.2.0
 ==============================================================
 """
 
@@ -16,23 +26,53 @@ from repositories.base_repository import BaseRepository
 
 
 class ProcedimientosRepository(BaseRepository):
+    """
+    Repositorio especializado para la tabla procedimientos.
+    """
 
     def __init__(self):
         super().__init__(
             table_name="procedimientos",
-            primary_key="id_procedimiento"
+            primary_key="id_procedimiento",
         )
 
+    # ==========================================================
+    # CONSULTAS
+    # ==========================================================
+
     def get_activos(self, conn=None):
+        """
+        Devuelve todos los procedimientos activos.
+
+        Los registros más recientes aparecen primero.
+        """
+
         query = """
             SELECT *
             FROM simi.procedimientos
             WHERE activo = TRUE
-            ORDER BY fecha_creacion DESC, id_procedimiento DESC;
+            ORDER BY
+                fecha_creacion DESC,
+                id_procedimiento DESC;
         """
-        return self.custom_query(query, conn=conn, fetch=True)
 
-    def get_by_numero_procedimiento(self, numero_procedimiento: str, conn=None):
+        return self.custom_query(
+            query=query,
+            conn=conn,
+            fetchall=True,
+        )
+
+    def get_by_numero_procedimiento(
+        self,
+        numero_procedimiento: str,
+        conn=None,
+    ):
+        """
+        Busca un procedimiento mediante su número o nombre.
+
+        Devuelve un solo registro o None.
+        """
+
         query = """
             SELECT *
             FROM simi.procedimientos
@@ -40,14 +80,16 @@ class ProcedimientosRepository(BaseRepository):
             LIMIT 1;
         """
 
-        result = self.custom_query(
-            query,
+        return self.custom_query(
+            query=query,
             params=(numero_procedimiento,),
             conn=conn,
-            fetch=True
+            fetchone=True,
         )
 
-        return result[0] if result else None
+    # ==========================================================
+    # CREACIÓN
+    # ==========================================================
 
     def crear_procedimiento(
         self,
@@ -55,20 +97,59 @@ class ProcedimientosRepository(BaseRepository):
         descripcion: str | None,
         ejercicio: int,
         activo: bool = True,
-        conn=None
+        conn=None,
     ):
+        """
+        Crea un procedimiento.
+
+        Los valores deben llegar normalizados y validados
+        desde el Service correspondiente.
+        """
+
         data = {
             "numero_procedimiento": numero_procedimiento,
             "descripcion": descripcion,
             "ejercicio": ejercicio,
-            "activo": activo
+            "activo": activo,
         }
 
-        return self.insert(data, conn=conn)
+        return self.insert(
+            data=data,
+            conn=conn,
+        )
 
-    def desactivar(self, id_procedimiento: int, conn=None):
+    # ==========================================================
+    # ESTADO
+    # ==========================================================
+
+    def activar(
+        self,
+        id_procedimiento: int,
+        conn=None,
+    ):
+        """
+        Activa un procedimiento.
+        """
+
+        return self.update(
+            record_id=id_procedimiento,
+            data={"activo": True},
+            conn=conn,
+        )
+
+    def desactivar(
+        self,
+        id_procedimiento: int,
+        conn=None,
+    ):
+        """
+        Desactiva un procedimiento.
+
+        No elimina físicamente el registro.
+        """
+
         return self.update(
             record_id=id_procedimiento,
             data={"activo": False},
-            conn=conn
+            conn=conn,
         )
