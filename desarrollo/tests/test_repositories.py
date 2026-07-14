@@ -18,6 +18,9 @@ from repositories.proveedores_repository import ProveedoresRepository
 from repositories.propuestas_repository import PropuestasRepository
 from repositories.adjudicaciones_repository import AdjudicacionesRepository
 from repositories.usuarios_repository import UsuariosRepository
+from repositories.evaluaciones_tecnicas_repository import (
+    EvaluacionesTecnicasRepository,
+)
 
 
 def main():
@@ -31,6 +34,7 @@ def main():
         ClavesRepository(),
         ProveedoresRepository(),
         PropuestasRepository(),
+        EvaluacionesTecnicasRepository(),
         AdjudicacionesRepository(),
         UsuariosRepository()
     ]

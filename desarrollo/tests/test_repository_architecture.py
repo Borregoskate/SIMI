@@ -32,6 +32,8 @@ REPOSITORIES_ACTIVOS = {
     "claves_repository.py",
     "proveedores_repository.py",
     "propuestas_repository.py",
+    "evaluaciones_tecnicas_repository.py",
+    "adjudicaciones_repository.py",
     "usuarios_repository.py",
 }
 
