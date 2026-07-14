@@ -8,175 +8,290 @@ prevalidacion_universo_service.py
 Servicio de prevalidación para la Carga 1:
 Universo del Procedimiento.
 
-Este servicio NO inserta datos en base de datos.
-Solo valida estructura, contenido, duplicados y consistencia
-contra base de datos.
+Flujo obligatorio:
+
+1. Leer archivo.
+2. Estandarizar columnas.
+3. Normalizar valores.
+4. Eliminar filas completamente vacías.
+5. Validar estructura y contenido.
+6. Validar contra base de datos.
+7. Entregar datos preparados a importación.
+
+Este servicio NO inserta información.
 
 Autor: Jorge Saavedra
-Versión: 1.0.0
+Versión: 2.0.0
 ==============================================================
 """
 
 import pandas as pd
 
+from services.normalizacion_service import (
+    normalizar_clave,
+    normalizar_decimal,
+    normalizar_texto,
+)
 from services.validacion_catalogos_service import (
     validar_claves_contra_catalogo,
-    validar_procedimiento_existente
+    validar_procedimiento_existente,
+)
+from services.validacion_service import (
+    NIVEL_ERROR,
+    validar_carga_1_universo,
 )
 
 
 HOJA_UNIVERSO = "Propuesta Económica"
 
+COLUMNAS_UNIVERSO = [
+    "CLAVE",
+    "DESCRIPCION",
+    "CANTIDAD_REQUERIDA",
+]
+
 
 def leer_archivo_universo(archivo):
     """
-    Lee el archivo Excel de universo del procedimiento.
+    Lee el archivo oficial de Universo del Procedimiento.
 
-    Estructura autorizada:
-    - Hoja: Propuesta Económica
-    - Encabezados: fila 7
-    - Columnas relevantes:
-        C = CLAVE
-        D = DESCRIPCION
-        H = CANTIDAD_REQUERIDA opcional
+    Estructura:
+
+    - Hoja: Propuesta Económica.
+    - Encabezados: fila 7.
+    - Datos relevantes: columnas C, D y H.
     """
 
     try:
+        if archivo is None:
+            return None, "No se recibió un archivo Excel."
+
+        if hasattr(archivo, "seek"):
+            archivo.seek(0)
+
         df = pd.read_excel(
             archivo,
             sheet_name=HOJA_UNIVERSO,
             header=6,
-            usecols="C,D,H"
+            usecols="C,D,H",
         )
 
-        df.columns = [
-            "CLAVE",
-            "DESCRIPCION",
-            "CANTIDAD_REQUERIDA"
-        ]
+        if len(df.columns) != len(COLUMNAS_UNIVERSO):
+            return (
+                None,
+                "No fue posible identificar las columnas "
+                "esperadas del universo.",
+            )
+
+        df.columns = COLUMNAS_UNIVERSO
 
         return df, None
 
     except ValueError:
-        return None, f"No se encontró la hoja '{HOJA_UNIVERSO}' en el archivo."
+        return (
+            None,
+            f"No se encontró la hoja "
+            f"'{HOJA_UNIVERSO}' en el archivo.",
+        )
 
     except Exception as error:
-        return None, f"Error al leer el archivo: {error}"
+        return (
+            None,
+            f"Error al leer el archivo: {error}",
+        )
 
 
-def limpiar_dataframe_universo(df):
+def normalizar_dataframe_universo(df):
     """
-    Limpia datos vacíos y normaliza columnas básicas.
+    Normaliza los valores del Universo antes de validar.
     """
 
-    df = df.copy()
+    if df is None:
+        return None
 
-    df = df.dropna(
-        subset=["CLAVE", "DESCRIPCION"],
-        how="all"
+    df_normalizado = df.copy()
+
+    df_normalizado["CLAVE"] = (
+        df_normalizado["CLAVE"]
+        .apply(normalizar_clave)
     )
 
-    df["CLAVE"] = df["CLAVE"].astype(str).str.strip()
-    df["DESCRIPCION"] = df["DESCRIPCION"].astype(str).str.strip()
-
-    df["CANTIDAD_REQUERIDA"] = pd.to_numeric(
-        df["CANTIDAD_REQUERIDA"],
-        errors="coerce"
+    df_normalizado["DESCRIPCION"] = (
+        df_normalizado["DESCRIPCION"]
+        .apply(normalizar_texto)
     )
 
-    return df
+    df_normalizado["CANTIDAD_REQUERIDA"] = (
+        df_normalizado["CANTIDAD_REQUERIDA"]
+        .apply(normalizar_decimal)
+    )
+
+    return df_normalizado
 
 
-def prevalidar_universo_procedimiento(archivo):
+def eliminar_filas_vacias_universo(df):
     """
-    Prevalida el archivo de universo del procedimiento.
+    Elimina filas sin clave, descripción ni cantidad.
 
-    Reglas actuales:
-    - CLAVE es obligatoria.
-    - DESCRIPCION es obligatoria.
-    - CANTIDAD_REQUERIDA es opcional.
-    - No debe haber claves duplicadas.
+    La eliminación ocurre después de la normalización.
+    """
+
+    if df is None:
+        return None
+
+    mascara_con_datos = ~(
+        df["CLAVE"].isna()
+        & df["DESCRIPCION"].isna()
+        & df["CANTIDAD_REQUERIDA"].isna()
+    )
+
+    return df[mascara_con_datos].copy()
+
+
+def convertir_mensajes_a_errores(mensajes):
+    """
+    Convierte los mensajes estructurados al formato que actualmente
+    consume carga_universo.py.
     """
 
     errores = []
 
-    df, error_lectura = leer_archivo_universo(archivo)
+    for mensaje in mensajes or []:
+        if mensaje.get("nivel") != NIVEL_ERROR:
+            continue
+
+        fila = mensaje.get("fila")
+        texto = mensaje.get("mensaje", "Error de validación.")
+
+        if fila is not None:
+            errores.append(
+                f"Fila {fila}: {texto}"
+            )
+        else:
+            errores.append(texto)
+
+    return errores
+
+
+def prevalidar_universo_procedimiento(archivo):
+    """
+    Ejecuta la prevalidación estructural de la Carga 1.
+
+    Reglas:
+
+    - CLAVE obligatoria.
+    - DESCRIPCION obligatoria.
+    - CANTIDAD_REQUERIDA opcional.
+    - No se permiten claves duplicadas.
+    """
+
+    df_original, error_lectura = leer_archivo_universo(
+        archivo
+    )
 
     if error_lectura:
         return {
             "valido": False,
             "dataframe": None,
             "errores": [error_lectura],
-            "resumen": {}
+            "resumen": {
+                "total_registros": 0,
+                "total_claves_unicas": 0,
+                "total_duplicados": 0,
+                "total_errores": 1,
+            },
         }
 
-    df = limpiar_dataframe_universo(df)
+    df_normalizado = normalizar_dataframe_universo(
+        df_original
+    )
 
-    if df.empty:
-        errores.append("El archivo no contiene registros válidos para procesar.")
+    df_preparado = eliminar_filas_vacias_universo(
+        df_normalizado
+    )
 
-    claves_vistas = set()
-    claves_duplicadas = set()
+    if df_preparado is None or df_preparado.empty:
+        return {
+            "valido": False,
+            "dataframe": df_preparado,
+            "errores": [
+                "El archivo no contiene registros válidos "
+                "para procesar."
+            ],
+            "resumen": {
+                "total_registros": 0,
+                "total_claves_unicas": 0,
+                "total_duplicados": 0,
+                "total_errores": 1,
+            },
+        }
 
-    for index, row in df.iterrows():
-        fila_excel = index + 8
+    resultado_validacion = validar_carga_1_universo(
+        df=df_preparado,
+        fila_inicio_excel=8,
+    )
 
-        clave = row.get("CLAVE")
-        descripcion = row.get("DESCRIPCION")
+    errores = convertir_mensajes_a_errores(
+        resultado_validacion["mensajes"]
+    )
 
-        if not clave or str(clave).lower() == "nan":
-            errores.append(f"Fila {fila_excel}: la clave es obligatoria.")
-
-        if not descripcion or str(descripcion).lower() == "nan":
-            errores.append(f"Fila {fila_excel}: la descripción es obligatoria.")
-
-        if clave and str(clave).lower() != "nan":
-            if clave in claves_vistas:
-                claves_duplicadas.add(clave)
-            else:
-                claves_vistas.add(clave)
-
-    for clave in claves_duplicadas:
-        errores.append(f"La clave '{clave}' aparece duplicada dentro del archivo.")
+    resumen_general = resultado_validacion["resumen"]
 
     resumen = {
-        "total_registros": len(df),
-        "total_claves_unicas": df["CLAVE"].nunique() if not df.empty else 0,
-        "total_duplicados": len(claves_duplicadas),
-        "total_errores": len(errores),
+        "total_registros": resumen_general.get(
+            "total_registros",
+            0,
+        ),
+        "total_claves_unicas": resumen_general.get(
+            "claves_unicas",
+            0,
+        ),
+        "total_duplicados": resumen_general.get(
+            "duplicados_clave",
+            0,
+        ),
+        "total_errores": resumen_general.get(
+            "errores",
+            0,
+        ),
     }
 
     return {
-        "valido": len(errores) == 0,
-        "dataframe": df,
+        "valido": resultado_validacion["valido"],
+        "dataframe": resultado_validacion[
+            "datos_validados"
+        ],
         "errores": errores,
-        "resumen": resumen
+        "resumen": resumen,
     }
 
 
-def prevalidar_universo_contra_bd(df, conn, numero_procedimiento):
+def prevalidar_universo_contra_bd(
+    df,
+    conn,
+    numero_procedimiento,
+):
     """
-    Ejecuta la prevalidación del universo contra base de datos.
+    Ejecuta la validación del universo contra la base de datos.
 
-    Validaciones:
-    - El procedimiento no debe existir previamente.
-    - Las claves existentes deben coincidir con su descripción en catálogo.
+    Reglas:
+
+    - El procedimiento no debe existir.
+    - Solo se verifica la existencia de la clave.
+    - No se compara la descripción contra catálogo.
     - Las claves nuevas se marcan para futura inserción.
-    - Se agregan columnas ID_CLAVE y ES_NUEVA.
-
-    Este proceso NO inserta datos.
     """
 
     errores = []
 
-    validacion_procedimiento = validar_procedimiento_existente(
-        conn=conn,
-        numero_procedimiento=numero_procedimiento
+    numero_normalizado = normalizar_texto(
+        numero_procedimiento
     )
 
-    if validacion_procedimiento["existe"]:
+    if not numero_normalizado:
         errores.append(
-            f"El procedimiento '{numero_procedimiento}' ya existe en base de datos."
+            "El número o nombre del procedimiento "
+            "es obligatorio."
         )
 
         return {
@@ -184,23 +299,74 @@ def prevalidar_universo_contra_bd(df, conn, numero_procedimiento):
             "df": df,
             "errores": errores,
             "resumen": {
-                "total_registros": len(df),
+                "total_registros": 0 if df is None else len(df),
                 "claves_existentes": 0,
                 "claves_nuevas": 0,
-                "errores": len(errores)
-            }
+                "errores": len(errores),
+            },
+        }
+
+    validacion_procedimiento = (
+        validar_procedimiento_existente(
+            numero_procedimiento=numero_normalizado,
+            conn=conn,
+        )
+    )
+
+    if validacion_procedimiento["existe"]:
+        errores.append(
+            f"El procedimiento '{numero_normalizado}' "
+            "ya existe en base de datos."
+        )
+
+        return {
+            "success": False,
+            "df": df,
+            "errores": errores,
+            "resumen": {
+                "total_registros": 0 if df is None else len(df),
+                "claves_existentes": 0,
+                "claves_nuevas": 0,
+                "errores": len(errores),
+            },
         }
 
     resultado_claves = validar_claves_contra_catalogo(
         df=df,
-        conn=conn
+        conn=conn,
     )
 
-    errores.extend(resultado_claves["errores"])
+    errores.extend(
+        resultado_claves.get("errores", [])
+    )
+
+    resumen = resultado_claves.get(
+        "resumen",
+        {},
+    ).copy()
+
+    resumen["errores"] = len(errores)
 
     return {
         "success": len(errores) == 0,
-        "df": resultado_claves["df"],
+        "df": resultado_claves.get("df"),
         "errores": errores,
-        "resumen": resultado_claves["resumen"]
+        "resumen": resumen,
     }
+
+
+# Compatibilidad temporal con código anterior.
+limpiar_dataframe_universo = normalizar_dataframe_universo
+
+
+__all__ = [
+    "HOJA_UNIVERSO",
+    "COLUMNAS_UNIVERSO",
+    "leer_archivo_universo",
+    "normalizar_dataframe_universo",
+    "limpiar_dataframe_universo",
+    "eliminar_filas_vacias_universo",
+    "prevalidar_universo_procedimiento",
+    "prevalidar_universo_contra_bd",
+]
+
