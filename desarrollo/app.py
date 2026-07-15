@@ -25,6 +25,7 @@ from config.config import (
 
 from modules.carga_universo import mostrar_carga_universo
 from modules.carga_propuestas import mostrar_carga_propuestas
+from modules.carga_evaluacion import mostrar_carga_evaluacion
 
 
 def configurar_pagina():
@@ -62,6 +63,7 @@ def mostrar_menu():
             "Claves",
             "Proveedores",
             "Carga 2 - Propuestas Iniciales",
+            "Carga 3 - Evaluación Técnica",
         ],
     )
 
@@ -90,6 +92,9 @@ def main():
 
     elif opcion == "Carga 2 - Propuestas Iniciales":
         mostrar_carga_propuestas()
+
+    elif opcion == "Carga 3 - Evaluación Técnica":
+        mostrar_carga_evaluacion()
 
 
 if __name__ == "__main__":
