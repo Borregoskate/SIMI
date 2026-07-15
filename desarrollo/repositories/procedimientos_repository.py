@@ -17,8 +17,10 @@ Responsabilidades:
 Este Repository recibe datos previamente normalizados,
 validados y verificados por la capa Service.
 
+No realiza normalización ni aplica reglas de negocio.
+
 Autor: Jorge Saavedra
-Versión: 1.2.0
+Versión: 1.3.0
 ==============================================================
 """
 
@@ -40,7 +42,10 @@ class ProcedimientosRepository(BaseRepository):
     # CONSULTAS
     # ==========================================================
 
-    def get_activos(self, conn=None):
+    def get_activos(
+        self,
+        conn=None,
+    ):
         """
         Devuelve todos los procedimientos activos.
 
@@ -60,6 +65,42 @@ class ProcedimientosRepository(BaseRepository):
             query=query,
             conn=conn,
             fetchall=True,
+        )
+
+    def get_activo_by_id(
+        self,
+        id_procedimiento: int,
+        conn=None,
+    ):
+        """
+        Busca un procedimiento activo mediante su identificador.
+
+        Devuelve un solo registro o None.
+
+        Este método permite que los Services verifiquen que el
+        procedimiento seleccionado existe y está activo sin incluir
+        SQL fuera de la capa Repository.
+        """
+
+        query = """
+            SELECT
+                id_procedimiento,
+                numero_procedimiento,
+                descripcion,
+                ejercicio,
+                fecha_creacion,
+                activo
+            FROM simi.procedimientos
+            WHERE id_procedimiento = %s
+              AND activo = TRUE
+            LIMIT 1;
+        """
+
+        return self.custom_query(
+            query=query,
+            params=(id_procedimiento,),
+            conn=conn,
+            fetchone=True,
         )
 
     def get_by_numero_procedimiento(
@@ -102,8 +143,8 @@ class ProcedimientosRepository(BaseRepository):
         """
         Crea un procedimiento.
 
-        Los valores deben llegar normalizados y validados
-        desde el Service correspondiente.
+        Los valores deben llegar normalizados y validados desde
+        el Service correspondiente.
         """
 
         data = {
