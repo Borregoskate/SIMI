@@ -124,41 +124,72 @@ def normalizar_razon_social(valor):
 
 
 def normalizar_pais(valor):
+    """
+    Normaliza uno o varios países de origen.
+
+    Reglas:
+    - Convierte el valor a texto normalizado.
+    - Elimina acentos.
+    - Convierte a mayúsculas.
+    - Usa "/" como separador estándar.
+    - Elimina espacios alrededor del separador.
+    - Homologa nombres conocidos de países.
+    - Elimina países repetidos conservando el orden.
+
+    Ejemplos:
+        "USA / México"       -> "ESTADOS UNIDOS/MEXICO"
+        "México, China"      -> "MEXICO/CHINA"
+        "EE.UU. / USA"       -> "ESTADOS UNIDOS"
+    """
+
+    if valor is None:
+        return None
+
+    try:
+        if pd.isna(valor):
+            return None
+    except (TypeError, ValueError):
+        pass
+
     texto = normalizar_texto(valor)
 
     if not texto:
         return None
 
-    texto = texto.replace("\\", "/")
-    texto = re.sub(r"\s*/\s*", " / ", texto)
-    texto = re.sub(r"[-–—]+", " ", texto)
-    texto = re.sub(r"\s+", " ", texto).strip()
+    # Homologar separadores antes de dividir.
+    texto = re.sub(r"\s*[/;,|]+\s*", "/", texto)
+    texto = re.sub(r"/+", "/", texto)
+    texto = texto.strip("/")
 
     equivalencias = {
         "USA": "ESTADOS UNIDOS",
-        "U.S.A": "ESTADOS UNIDOS",
-        "U.S.A.": "ESTADOS UNIDOS",
         "US": "ESTADOS UNIDOS",
-        "U.S": "ESTADOS UNIDOS",
-        "U.S.": "ESTADOS UNIDOS",
-        "EUA": "ESTADOS UNIDOS",
+        "U.S.A.": "ESTADOS UNIDOS",
         "EEUU": "ESTADOS UNIDOS",
-        "EE.UU": "ESTADOS UNIDOS",
         "EE.UU.": "ESTADOS UNIDOS",
+        "EUA": "ESTADOS UNIDOS",
         "ESTADOS UNIDOS DE AMERICA": "ESTADOS UNIDOS",
-        "UNITED STATES": "ESTADOS UNIDOS",
-        "UNITED STATES OF AMERICA": "ESTADOS UNIDOS",
+        "MEXICO": "MEXICO",
+        "CHINA": "CHINA",
     }
 
-    partes = []
+    paises_normalizados = []
 
     for pais in texto.split("/"):
         pais = pais.strip()
 
-        if pais:
-            partes.append(equivalencias.get(pais, pais))
+        if not pais:
+            continue
 
-    return " / ".join(partes) if partes else None
+        pais = equivalencias.get(pais, pais)
+
+        if pais not in paises_normalizados:
+            paises_normalizados.append(pais)
+
+    if not paises_normalizados:
+        return None
+
+    return "/".join(paises_normalizados)
 
 
 def normalizar_numero(valor):
