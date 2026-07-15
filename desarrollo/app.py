@@ -8,7 +8,7 @@ app.py
 Archivo principal de la aplicación Streamlit.
 
 Autor: Jorge Saavedra
-Versión: 1.1.0
+Versión: 1.2.0
 ==============================================================
 """
 
@@ -27,6 +27,9 @@ from modules.carga_universo import mostrar_carga_universo
 from modules.carga_propuestas import mostrar_carga_propuestas
 from modules.carga_evaluacion import mostrar_carga_evaluacion
 from modules.carga_subasta import mostrar_carga_subasta
+from modules.carga_adjudicaciones import (
+    mostrar_carga_adjudicaciones,
+)
 
 
 def configurar_pagina():
@@ -66,6 +69,7 @@ def mostrar_menu():
             "Carga 2 - Propuestas Iniciales",
             "Carga 3 - Evaluación Técnica",
             "Carga 4 - Subasta Privada",
+            "Carga 5 - Adjudicaciones",
         ],
     )
 
@@ -100,6 +104,9 @@ def main():
 
     elif opcion == "Carga 4 - Subasta Privada":
         mostrar_carga_subasta()
+
+    elif opcion == "Carga 5 - Adjudicaciones":
+        mostrar_carga_adjudicaciones()
 
 
 if __name__ == "__main__":
