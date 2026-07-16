@@ -732,9 +732,26 @@ class AnalisisClaveService:
                 item.get("cantidad_total_adjudicada"),
                 cls.CERO,
             )
+            item["porcentaje_total_adjudicado"] = (
+                cls.redondear_porcentaje(
+                    item.get("porcentaje_total_adjudicado")
+                )
+                or cls.CERO.quantize(cls.CUANTIZADOR_PORCENTAJE)
+            )
+            item["proveedores_adjudicados"] = cls._entero(
+                item.get("proveedores_adjudicados")
+            )
             item["valor_total_adjudicado"] = cls.redondear_precio(
                 item.get("valor_total_adjudicado")
             ) or cls.CERO.quantize(cls.CUANTIZADOR_PRECIO)
+
+            item["origen_dato"] = (
+                item.get("origen_dato")
+                or "OPERATIVO"
+            )
+            item["es_historico"] = (
+                item["origen_dato"] == "HISTORICO"
+            )
 
             item["precio_adjudicado_ponderado"] = (
                 cls.calcular_precio_adjudicado_ponderado(
