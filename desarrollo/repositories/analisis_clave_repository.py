@@ -859,11 +859,25 @@ class AnalisisClaveRepository(BaseRepository):
         conn=None,
     ):
         """
-        Devuelve la base histórica de precios de la clave
-        agrupada por procedimiento.
+        Devuelve el historial de precios de la clave por procedimiento.
 
-        Las propuestas y adjudicaciones se agregan en CTE separados
-        para evitar multiplicar cantidades o valores adjudicados.
+        Incluye dos orígenes independientes:
+
+        1. Procedimientos operativos:
+           - Se relacionan mediante id_procedimiento.
+           - Incluyen propuesta inicial, oferta viable, subasta y
+             adjudicación actual.
+
+        2. Adjudicaciones históricas:
+           - No tienen id_procedimiento.
+           - numero_procedimiento se conserva como texto.
+           - Se relacionan exclusivamente mediante id_clave.
+           - El ejercicio se obtiene del número de procedimiento cuando
+             contiene un año de cuatro dígitos.
+
+        Cuando se selecciona un id_procedimiento operativo concreto, no se
+        mezclan adjudicaciones históricas porque no existe una relación
+        válida entre ambos identificadores.
         """
         where_sql, params = self._construir_filtros(
             id_clave=id_clave,
@@ -871,6 +885,28 @@ class AnalisisClaveRepository(BaseRepository):
             ejercicio=ejercicio,
             alias_clave="pc",
             alias_procedimiento="pr",
+        )
+
+        condiciones_historicas = ["ah.id_clave = %s"]
+        params_historicos = [id_clave]
+
+        if id_procedimiento is not None:
+            # La tabla histórica no contiene id_procedimiento.
+            condiciones_historicas.append("FALSE")
+
+        if ejercicio is not None:
+            condiciones_historicas.append(
+                """
+                SUBSTRING(
+                    ah.numero_procedimiento
+                    FROM '(20[0-9]{2})'
+                )::INTEGER = %s
+                """
+            )
+            params_historicos.append(ejercicio)
+
+        where_historico_sql = (
+            "WHERE " + " AND ".join(condiciones_historicas)
         )
 
         query = f"""
@@ -926,7 +962,7 @@ class AnalisisClaveRepository(BaseRepository):
                     uf.id_procedimiento,
                     uf.id_clave
             ),
-            adjudicaciones AS (
+            adjudicaciones_actuales AS (
                 SELECT
                     uf.id_procedimiento,
                     uf.id_clave,
@@ -935,10 +971,19 @@ class AnalisisClaveRepository(BaseRepository):
                         a.precio_unitario_adjudicado
                     ) AS mejor_precio_adjudicado,
 
+                    COUNT(
+                        DISTINCT a.id_proveedor
+                    ) AS proveedores_adjudicados,
+
                     COALESCE(
                         SUM(a.cantidad_adjudicada),
                         0
                     ) AS cantidad_total_adjudicada,
+
+                    COALESCE(
+                        SUM(a.porcentaje_adjudicado),
+                        0
+                    ) AS porcentaje_total_adjudicado,
 
                     COALESCE(
                         SUM(
@@ -955,38 +1000,135 @@ class AnalisisClaveRepository(BaseRepository):
                 GROUP BY
                     uf.id_procedimiento,
                     uf.id_clave
+            ),
+            historial_operativo AS (
+                SELECT
+                    uf.id_procedimiento,
+                    uf.numero_procedimiento,
+                    uf.ejercicio,
+                    uf.id_clave,
+
+                    'OPERATIVO'::TEXT AS origen_dato,
+
+                    p.mejor_precio_inicial,
+                    p.mejor_precio_viable,
+                    p.mejor_precio_subasta,
+                    aa.mejor_precio_adjudicado,
+
+                    COALESCE(
+                        aa.proveedores_adjudicados,
+                        0
+                    ) AS proveedores_adjudicados,
+
+                    COALESCE(
+                        aa.cantidad_total_adjudicada,
+                        0
+                    ) AS cantidad_total_adjudicada,
+
+                    COALESCE(
+                        aa.porcentaje_total_adjudicado,
+                        0
+                    ) AS porcentaje_total_adjudicado,
+
+                    COALESCE(
+                        aa.valor_total_adjudicado,
+                        0
+                    ) AS valor_total_adjudicado
+
+                FROM universo_filtrado AS uf
+                LEFT JOIN precios AS p
+                    ON p.id_procedimiento = uf.id_procedimiento
+                    AND p.id_clave = uf.id_clave
+                LEFT JOIN adjudicaciones_actuales AS aa
+                    ON aa.id_procedimiento = uf.id_procedimiento
+                    AND aa.id_clave = uf.id_clave
+            ),
+            historial_adjudicaciones AS (
+                SELECT
+                    NULL::BIGINT AS id_procedimiento,
+                    ah.numero_procedimiento,
+                    CASE
+                        WHEN SUBSTRING(
+                            ah.numero_procedimiento
+                            FROM '(20[0-9]{{2}})'
+                        ) IS NOT NULL
+                        THEN SUBSTRING(
+                            ah.numero_procedimiento
+                            FROM '(20[0-9]{{2}})'
+                        )::INTEGER
+                        ELSE NULL
+                    END AS ejercicio,
+                    ah.id_clave,
+
+                    'HISTORICO'::TEXT AS origen_dato,
+
+                    NULL::NUMERIC AS mejor_precio_inicial,
+                    NULL::NUMERIC AS mejor_precio_viable,
+                    NULL::NUMERIC AS mejor_precio_subasta,
+
+                    MIN(
+                        ah.precio_unitario_adjudicado
+                    ) AS mejor_precio_adjudicado,
+
+                    COUNT(
+                        DISTINCT ah.id_proveedor
+                    ) AS proveedores_adjudicados,
+
+                    COALESCE(
+                        SUM(ah.cantidad_adjudicada),
+                        0
+                    ) AS cantidad_total_adjudicada,
+
+                    COALESCE(
+                        SUM(ah.porcentaje_adjudicado),
+                        0
+                    ) AS porcentaje_total_adjudicado,
+
+                    COALESCE(
+                        SUM(
+                            ah.cantidad_adjudicada
+                            * ah.precio_unitario_adjudicado
+                        ),
+                        0
+                    ) AS valor_total_adjudicado
+
+                FROM simi.adjudicaciones_historicas AS ah
+                {where_historico_sql}
+                GROUP BY
+                    ah.numero_procedimiento,
+                    ah.id_clave
             )
             SELECT
-                uf.id_procedimiento,
-                uf.numero_procedimiento,
-                uf.ejercicio,
+                h.id_procedimiento,
+                h.numero_procedimiento,
+                h.ejercicio,
+                h.id_clave,
+                h.origen_dato,
 
-                p.mejor_precio_inicial,
-                p.mejor_precio_viable,
-                p.mejor_precio_subasta,
-                a.mejor_precio_adjudicado,
+                h.mejor_precio_inicial,
+                h.mejor_precio_viable,
+                h.mejor_precio_subasta,
+                h.mejor_precio_adjudicado,
 
-                COALESCE(
-                    a.cantidad_total_adjudicada,
-                    0
-                ) AS cantidad_total_adjudicada,
+                h.proveedores_adjudicados,
+                h.cantidad_total_adjudicada,
+                h.porcentaje_total_adjudicado,
+                h.valor_total_adjudicado
 
-                COALESCE(
-                    a.valor_total_adjudicado,
-                    0
-                ) AS valor_total_adjudicado
+            FROM (
+                SELECT *
+                FROM historial_operativo
 
-            FROM universo_filtrado AS uf
-            LEFT JOIN precios AS p
-                ON p.id_procedimiento = uf.id_procedimiento
-                AND p.id_clave = uf.id_clave
-            LEFT JOIN adjudicaciones AS a
-                ON a.id_procedimiento = uf.id_procedimiento
-                AND a.id_clave = uf.id_clave
+                UNION ALL
+
+                SELECT *
+                FROM historial_adjudicaciones
+            ) AS h
             ORDER BY
-                uf.ejercicio,
-                uf.numero_procedimiento,
-                uf.id_procedimiento;
+                h.ejercicio NULLS LAST,
+                h.numero_procedimiento,
+                h.origen_dato,
+                h.id_procedimiento NULLS LAST;
         """
 
         return self.custom_query(
@@ -998,6 +1140,7 @@ class AnalisisClaveRepository(BaseRepository):
                 self.RESULTADO_POSITIVA,
                 self.TIPO_SUBASTA,
                 self.RESULTADO_POSITIVA,
+                *params_historicos,
             ),
             conn=conn,
             fetchall=True,
