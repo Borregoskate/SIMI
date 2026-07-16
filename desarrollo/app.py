@@ -8,7 +8,7 @@ app.py
 Archivo principal de la aplicación Streamlit.
 
 Autor: Jorge Saavedra
-Versión: 1.2.0
+Versión: 1.3.0
 ==============================================================
 """
 
@@ -22,7 +22,7 @@ from config.config import (
     LAYOUT,
     SIDEBAR,
 )
-
+from modules.dashboard import mostrar_dashboard
 from modules.carga_universo import mostrar_carga_universo
 from modules.carga_propuestas import mostrar_carga_propuestas
 from modules.carga_evaluacion import mostrar_carga_evaluacion
@@ -32,11 +32,19 @@ from modules.carga_adjudicaciones import (
 )
 
 
-def configurar_pagina():
-    """
-    Configura la página principal de Streamlit.
-    """
+OPCION_DASHBOARD = "Dashboard Ejecutivo"
+OPCION_CARGA_UNIVERSO = "Carga 1 — Universo del Procedimiento"
+OPCION_CATEGORIAS = "Categorías"
+OPCION_CLAVES = "Claves"
+OPCION_PROVEEDORES = "Proveedores"
+OPCION_CARGA_PROPUESTAS = "Carga 2 - Propuestas Iniciales"
+OPCION_CARGA_EVALUACION = "Carga 3 - Evaluación Técnica"
+OPCION_CARGA_SUBASTA = "Carga 4 - Subasta Privada"
+OPCION_CARGA_ADJUDICACIONES = "Carga 5 - Adjudicaciones"
 
+
+def configurar_pagina():
+    """Configura la página principal de Streamlit."""
     st.set_page_config(
         page_title=PAGE_TITLE,
         page_icon=PAGE_ICON,
@@ -46,67 +54,58 @@ def configurar_pagina():
 
 
 def mostrar_encabezado():
-    """
-    Muestra el encabezado general del sistema.
-    """
-
+    """Muestra el encabezado general del sistema."""
     st.title(APP_NAME)
     st.caption(APP_DESCRIPTION)
 
 
 def mostrar_menu():
-    """
-    Muestra el menú lateral principal.
-    """
-
+    """Muestra el menú lateral principal."""
     return st.sidebar.selectbox(
         "Selecciona un módulo",
         [
-            "Carga 1 — Universo del Procedimiento",
-            "Categorías",
-            "Claves",
-            "Proveedores",
-            "Carga 2 - Propuestas Iniciales",
-            "Carga 3 - Evaluación Técnica",
-            "Carga 4 - Subasta Privada",
-            "Carga 5 - Adjudicaciones",
+            OPCION_DASHBOARD,
+            OPCION_CARGA_UNIVERSO,
+            OPCION_CATEGORIAS,
+            OPCION_CLAVES,
+            OPCION_PROVEEDORES,
+            OPCION_CARGA_PROPUESTAS,
+            OPCION_CARGA_EVALUACION,
+            OPCION_CARGA_SUBASTA,
+            OPCION_CARGA_ADJUDICACIONES,
         ],
     )
 
 
-def main():
-    """
-    Función principal de la aplicación.
-    """
+def ejecutar_modulo(opcion):
+    """Ejecuta el módulo seleccionado."""
+    if opcion == OPCION_DASHBOARD:
+        mostrar_dashboard()
+    elif opcion == OPCION_CARGA_UNIVERSO:
+        mostrar_carga_universo()
+    elif opcion == OPCION_CATEGORIAS:
+        st.info("Módulo de categorías ya existente.")
+    elif opcion == OPCION_CLAVES:
+        st.info("Módulo de claves ya existente.")
+    elif opcion == OPCION_PROVEEDORES:
+        st.info("Módulo de proveedores ya existente.")
+    elif opcion == OPCION_CARGA_PROPUESTAS:
+        mostrar_carga_propuestas()
+    elif opcion == OPCION_CARGA_EVALUACION:
+        mostrar_carga_evaluacion()
+    elif opcion == OPCION_CARGA_SUBASTA:
+        mostrar_carga_subasta()
+    elif opcion == OPCION_CARGA_ADJUDICACIONES:
+        mostrar_carga_adjudicaciones()
 
+
+def main():
+    """Función principal de la aplicación."""
     configurar_pagina()
     mostrar_encabezado()
 
     opcion = mostrar_menu()
-
-    if opcion == "Carga 1 — Universo del Procedimiento":
-        mostrar_carga_universo()
-
-    elif opcion == "Categorías":
-        st.info("Módulo de categorías ya existente.")
-
-    elif opcion == "Claves":
-        st.info("Módulo de claves ya existente.")
-
-    elif opcion == "Proveedores":
-        st.info("Módulo de proveedores ya existente.")
-
-    elif opcion == "Carga 2 - Propuestas Iniciales":
-        mostrar_carga_propuestas()
-
-    elif opcion == "Carga 3 - Evaluación Técnica":
-        mostrar_carga_evaluacion()
-
-    elif opcion == "Carga 4 - Subasta Privada":
-        mostrar_carga_subasta()
-
-    elif opcion == "Carga 5 - Adjudicaciones":
-        mostrar_carga_adjudicaciones()
+    ejecutar_modulo(opcion)
 
 
 if __name__ == "__main__":
