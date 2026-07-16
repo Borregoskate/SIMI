@@ -32,12 +32,13 @@ Versión: 1.0.0
 ==============================================================
 """
 
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP
 
 from repositories.analisis_clave_repository import AnalisisClaveRepository
+from services.analisis_economico_service import AnalisisEconomicoService
 
 
-class AnalisisClaveService:
+class AnalisisClaveService(AnalisisEconomicoService):
     """Servicio de reglas analíticas para el módulo Análisis por Clave."""
 
     # ==========================================================
@@ -52,184 +53,8 @@ class AnalisisClaveService:
     ESTADO_ADJUDICADO = "ADJUDICADO"
     ESTADO_SIN_INFORMACION = "SIN INFORMACIÓN"
 
-    # ==========================================================
-    # CLASIFICACIONES ECONÓMICAS
-    # ==========================================================
-
-    CLASIFICACION_AHORRO = "AHORRO"
-    CLASIFICACION_SIN_CAMBIO = "SIN CAMBIO"
-    CLASIFICACION_INCREMENTO = "INCREMENTO"
-    CLASIFICACION_INSUFICIENTE = "INFORMACIÓN INSUFICIENTE"
-
-    # ==========================================================
-    # CONFIGURACIÓN NUMÉRICA
-    # ==========================================================
-
-    CUANTIZADOR_PRECIO = Decimal("0.01")
-    CUANTIZADOR_PORCENTAJE = Decimal("0.01")
-    CERO = Decimal("0")
-
     def __init__(self, repository=None):
         self.repository = repository or AnalisisClaveRepository()
-
-    # ==========================================================
-    # UTILIDADES NUMÉRICAS
-    # ==========================================================
-
-    @classmethod
-    def _decimal(cls, valor, default=None):
-        """
-        Convierte un valor a Decimal de forma controlada.
-
-        - None permanece como None cuando no se proporciona default.
-        - Los valores inválidos devuelven default.
-        - No convierte ausencias en cero salvo que el llamador
-          lo solicite expresamente.
-        """
-        if valor is None:
-            return default
-
-        if isinstance(valor, str):
-            valor = valor.strip()
-            if not valor:
-                return default
-
-        try:
-            numero = Decimal(str(valor))
-        except (InvalidOperation, ValueError, TypeError):
-            return default
-
-        if not numero.is_finite():
-            return default
-
-        return numero
-
-    @classmethod
-    def _entero(cls, valor, default=0):
-        """Convierte un valor a entero sin propagar errores."""
-        numero = cls._decimal(valor)
-        if numero is None:
-            return default
-
-        try:
-            return int(numero)
-        except (ValueError, TypeError, OverflowError):
-            return default
-
-    @classmethod
-    def redondear_precio(cls, valor):
-        """Redondea un precio a dos decimales con ROUND_HALF_UP."""
-        numero = cls._decimal(valor)
-        if numero is None:
-            return None
-
-        return numero.quantize(
-            cls.CUANTIZADOR_PRECIO,
-            rounding=ROUND_HALF_UP,
-        )
-
-    @classmethod
-    def redondear_porcentaje(cls, valor):
-        """Redondea un porcentaje a dos decimales con ROUND_HALF_UP."""
-        numero = cls._decimal(valor)
-        if numero is None:
-            return None
-
-        return numero.quantize(
-            cls.CUANTIZADOR_PORCENTAJE,
-            rounding=ROUND_HALF_UP,
-        )
-
-    @classmethod
-    def calcular_porcentaje(cls, numerador, denominador):
-        """
-        Calcula numerador / denominador * 100.
-
-        Devuelve None cuando el denominador es inexistente o no positivo.
-        """
-        numero = cls._decimal(numerador)
-        total = cls._decimal(denominador)
-
-        if numero is None or total is None or total <= cls.CERO:
-            return None
-
-        return (
-            (numero / total) * Decimal("100")
-        ).quantize(
-            cls.CUANTIZADOR_PORCENTAJE,
-            rounding=ROUND_HALF_UP,
-        )
-
-    @classmethod
-    def calcular_variacion(cls, precio_origen, precio_destino):
-        """
-        Calcula la variación porcentual entre dos precios.
-
-        Fórmula:
-            ((destino - origen) / origen) * 100
-
-        Devuelve None cuando falta algún precio o el precio de origen
-        es menor o igual a cero.
-        """
-        origen = cls._decimal(precio_origen)
-        destino = cls._decimal(precio_destino)
-
-        if (
-            origen is None
-            or destino is None
-            or origen <= cls.CERO
-        ):
-            return None
-
-        return (
-            ((destino - origen) / origen) * Decimal("100")
-        ).quantize(
-            cls.CUANTIZADOR_PORCENTAJE,
-            rounding=ROUND_HALF_UP,
-        )
-
-    @classmethod
-    def clasificar_variacion(cls, variacion):
-        """Clasifica una variación económica."""
-        valor = cls._decimal(variacion)
-
-        if valor is None:
-            return cls.CLASIFICACION_INSUFICIENTE
-
-        if valor < cls.CERO:
-            return cls.CLASIFICACION_AHORRO
-
-        if valor > cls.CERO:
-            return cls.CLASIFICACION_INCREMENTO
-
-        return cls.CLASIFICACION_SIN_CAMBIO
-
-    @classmethod
-    def calcular_precio_adjudicado_ponderado(
-        cls,
-        cantidad_total_adjudicada,
-        valor_total_adjudicado,
-    ):
-        """
-        Calcula el precio adjudicado ponderado.
-
-        precio ponderado =
-            valor total adjudicado / cantidad total adjudicada
-        """
-        cantidad = cls._decimal(cantidad_total_adjudicada)
-        valor = cls._decimal(valor_total_adjudicado)
-
-        if (
-            cantidad is None
-            or valor is None
-            or cantidad <= cls.CERO
-        ):
-            return None
-
-        return (valor / cantidad).quantize(
-            cls.CUANTIZADOR_PRECIO,
-            rounding=ROUND_HALF_UP,
-        )
 
     # ==========================================================
     # ESTADO ANALÍTICO
