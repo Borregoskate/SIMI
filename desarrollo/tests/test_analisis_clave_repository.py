@@ -489,13 +489,32 @@ def test_obtener_historial_precios(monkeypatch):
             "id_procedimiento": 10,
             "numero_procedimiento": "PROC-001",
             "ejercicio": 2026,
+            "id_clave": 3,
+            "origen_dato": "OPERATIVO",
             "mejor_precio_inicial": 100,
             "mejor_precio_viable": 105,
             "mejor_precio_subasta": 95,
             "mejor_precio_adjudicado": 96,
+            "proveedores_adjudicados": 1,
             "cantidad_total_adjudicada": 1000,
+            "porcentaje_total_adjudicado": 100,
             "valor_total_adjudicado": 96500,
-        }
+        },
+        {
+            "id_procedimiento": None,
+            "numero_procedimiento": "HIST-2025-001",
+            "ejercicio": 2025,
+            "id_clave": 3,
+            "origen_dato": "HISTORICO",
+            "mejor_precio_inicial": None,
+            "mejor_precio_viable": None,
+            "mejor_precio_subasta": None,
+            "mejor_precio_adjudicado": 98,
+            "proveedores_adjudicados": 1,
+            "cantidad_total_adjudicada": 500,
+            "porcentaje_total_adjudicado": 100,
+            "valor_total_adjudicado": 49000,
+        },
     ]
 
     def mock_custom_query(
@@ -507,23 +526,43 @@ def test_obtener_historial_precios(monkeypatch):
     ):
         sql = normalizar_sql(query)
 
+        # Universo y precios operativos.
         assert "WITH universo_filtrado AS" in sql
         assert "precios AS" in sql
-        assert "adjudicaciones AS" in sql
+        assert "adjudicaciones_actuales AS" in sql
+        assert "historial_operativo AS" in sql
 
+        # Adjudicaciones históricas.
+        assert "historial_adjudicaciones AS" in sql
+        assert "simi.adjudicaciones_historicas" in sql
+        assert "'OPERATIVO'::TEXT AS origen_dato" in sql
+        assert "'HISTORICO'::TEXT AS origen_dato" in sql
+
+        # Campos analíticos esperados.
         assert "mejor_precio_inicial" in sql
         assert "mejor_precio_viable" in sql
         assert "mejor_precio_subasta" in sql
         assert "mejor_precio_adjudicado" in sql
+        assert "proveedores_adjudicados" in sql
         assert "cantidad_total_adjudicada" in sql
+        assert "porcentaje_total_adjudicado" in sql
         assert "valor_total_adjudicado" in sql
 
+        # Consolidación de operativos e históricos.
+        assert "UNION ALL" in sql
+        assert "SELECT * FROM historial_operativo" in sql
+        assert "SELECT * FROM historial_adjudicaciones" in sql
+
+        # Orden cronológico de la consulta consolidada.
         assert (
-            "ORDER BY uf.ejercicio, "
-            "uf.numero_procedimiento, "
-            "uf.id_procedimiento"
+            "ORDER BY h.ejercicio NULLS LAST, "
+            "h.numero_procedimiento, "
+            "h.origen_dato, "
+            "h.id_procedimiento NULLS LAST"
         ) in sql
 
+        # La clave se utiliza una vez en el universo operativo
+        # y otra en adjudicaciones históricas.
         assert params == (
             3,
             "INICIAL",
@@ -531,7 +570,9 @@ def test_obtener_historial_precios(monkeypatch):
             "POSITIVA",
             "SUBASTA",
             "POSITIVA",
+            3,
         )
+
         assert conn is CONEXION_PRUEBA
         assert fetchall is True
         assert fetchone is False
