@@ -37,9 +37,9 @@ from modules.comparador_im import mostrar_comparador_im
 # ==========================================================
 
 OPCION_DASHBOARD = "Dashboard Ejecutivo"
-OPCION_COMPARADOR_IM = "Comparador de Investigaciones de Mercado"
 OPCION_ANALISIS_CLAVE = "Análisis por Clave"
 OPCION_ANALISIS_PROVEEDOR = "Análisis por Proveedor"
+OPCION_COMPARADOR_IM = "Análisis de Mercado"
 OPCION_CARGA_UNIVERSO = "Carga 1 — Universo del Procedimiento"
 OPCION_CARGA_PROPUESTAS = "Carga 2 - Propuestas Iniciales"
 OPCION_CARGA_EVALUACION = "Carga 3 - Evaluación Técnica"
