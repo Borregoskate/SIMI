@@ -959,14 +959,14 @@ def _generar_excel(resultado):
             from openpyxl.utils import get_column_letter
 
             # Formato de moneda para columnas H e I
-            for col in ("H", "I"):
+            for col in ("F", "G"):
                 if ws.max_column >= ord(col) - 64:
                     for cell in ws[col][1:]:
                         cell.number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
 
             # Formato porcentual para columna K
             if ws.max_column >= 11:
-                for cell in ws["K"][1:]:
+                for cell in ws["I"][1:]:
                     cell.number_format = "0.00%"
 
             # Ajustar automáticamente el ancho de las columnas
