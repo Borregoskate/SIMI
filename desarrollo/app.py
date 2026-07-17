@@ -28,8 +28,8 @@ from modules.analisis_proveedor import mostrar_analisis_proveedor
 from modules.carga_universo import mostrar_carga_universo
 from modules.carga_propuestas import mostrar_carga_propuestas
 from modules.carga_evaluacion import mostrar_carga_evaluacion
-from modules.carga_subasta import mostrar_carga_subasta
 from modules.carga_adjudicaciones import mostrar_carga_adjudicaciones
+from modules.comparador_im import mostrar_comparador_im
 
 
 # ==========================================================
@@ -37,6 +37,7 @@ from modules.carga_adjudicaciones import mostrar_carga_adjudicaciones
 # ==========================================================
 
 OPCION_DASHBOARD = "Dashboard Ejecutivo"
+OPCION_COMPARADOR_IM = "Comparador de Investigaciones de Mercado"
 OPCION_ANALISIS_CLAVE = "Análisis por Clave"
 OPCION_ANALISIS_PROVEEDOR = "Análisis por Proveedor"
 OPCION_CARGA_UNIVERSO = "Carga 1 — Universo del Procedimiento"
@@ -67,6 +68,7 @@ def mostrar_menu():
         "Selecciona un módulo",
         [
             OPCION_DASHBOARD,
+            OPCION_COMPARADOR_IM,
             OPCION_ANALISIS_CLAVE,
             OPCION_ANALISIS_PROVEEDOR,
             OPCION_CARGA_UNIVERSO,
@@ -81,6 +83,8 @@ def ejecutar_modulo(opcion):
     """Ejecuta el módulo seleccionado."""
     if opcion == OPCION_DASHBOARD:
         mostrar_dashboard()
+    elif opcion == OPCION_COMPARADOR_IM:
+        mostrar_comparador_im()
     elif opcion == OPCION_ANALISIS_CLAVE:
         mostrar_analisis_clave()
     elif opcion == OPCION_ANALISIS_PROVEEDOR:
