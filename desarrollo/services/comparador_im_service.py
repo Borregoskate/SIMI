@@ -105,17 +105,47 @@ class ComparadorIMService(AnalisisEconomicoService):
     RIESGO_ALTO = "ALTO"
     RIESGO_INDETERMINADO = "INDETERMINADO"
 
-    LIMITE_MUY_COMPETITIVO = Decimal("-10")
-    LIMITE_COMPETITIVO = Decimal("-3")
-    LIMITE_EN_MERCADO = Decimal("3")
-    LIMITE_LIGERAMENTE_ELEVADO = Decimal("10")
-    LIMITE_ELEVADO = Decimal("20")
+    LIMITE_MUY_COMPETITIVO = Decimal("-0.10")
+    LIMITE_COMPETITIVO = Decimal("-0.03")
+    LIMITE_EN_MERCADO = Decimal("0.03")
+    LIMITE_LIGERAMENTE_ELEVADO = Decimal("0.10")
+    LIMITE_ELEVADO = Decimal("0.20")
 
-    LIMITE_TENDENCIA = Decimal("5")
-    LIMITE_CAMBIO_VOLATIL = Decimal("10")
+    LIMITE_TENDENCIA = Decimal("0.05")
+    LIMITE_CAMBIO_VOLATIL = Decimal("0.10")
 
     def __init__(self, repository=None):
         self.repository = repository or ComparadorIMRepository()
+
+    @classmethod
+    def calcular_variacion(cls, valor_origen, valor_destino):
+        """
+        Calcula la variación como fracción decimal.
+
+        Ejemplo:
+            origen = 100
+            destino = 105.16
+            resultado = Decimal("0.0516")
+
+        La UI convierte esta fracción a 5.16% y Excel utiliza
+        directamente el formato porcentual 0.00%.
+        """
+        origen = cls._decimal(valor_origen)
+        destino = cls._decimal(valor_destino)
+
+        if (
+            origen is None
+            or destino is None
+            or origen == cls.CERO
+        ):
+            return None
+
+        variacion = (destino - origen) / origen
+
+        return variacion.quantize(
+            Decimal("0.0001"),
+            rounding=ROUND_HALF_UP,
+        )
 
     # ==========================================================
     # UTILIDADES INTERNAS
