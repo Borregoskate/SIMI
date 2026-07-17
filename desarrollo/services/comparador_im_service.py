@@ -2172,6 +2172,10 @@ class ComparadorIMService(AnalisisEconomicoService):
     # COMPARADOR POR PROCEDIMIENTO
     # ==========================================================
 
+    TIPO_INICIAL = "INICIAL"
+    TIPO_SUBASTA = "SUBASTA"
+    RESULTADO_POSITIVA = "POSITIVA"
+
     ETAPA_ADJUDICACION = "ADJUDICACION"
     ETAPA_SUBASTA = "SUBASTA"
     ETAPA_VIABLE = "VIABLE"
@@ -2757,3 +2761,4 @@ class ComparadorIMService(AnalisisEconomicoService):
             "claves": analisis_claves,
             "tablas": tablas,
         }
+
