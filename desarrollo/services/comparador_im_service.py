@@ -2249,11 +2249,37 @@ class ComparadorIMService(AnalisisEconomicoService):
         precio_adjudicado = None
 
         if adjudicaciones:
-            precio_adjudicado = cls.calcular_precio_ponderado(
-                registros=adjudicaciones,
-                campo_precio="precio_unitario_adjudicado",
-                campo_cantidad="cantidad_adjudicada",
-            )
+            suma_importes = cls.CERO
+            suma_cantidades = cls.CERO
+
+            for registro in adjudicaciones:
+                if not isinstance(registro, dict):
+                    continue
+
+                precio = cls._decimal(
+                    registro.get(
+                        "precio_unitario_adjudicado"
+                    )
+                )
+                cantidad = cls._decimal(
+                    registro.get("cantidad_adjudicada")
+                )
+
+                if (
+                    precio is None
+                    or cantidad is None
+                    or precio <= cls.CERO
+                    or cantidad <= cls.CERO
+                ):
+                    continue
+
+                suma_importes += precio * cantidad
+                suma_cantidades += cantidad
+
+            if suma_cantidades > cls.CERO:
+                precio_adjudicado = (
+                    suma_importes / suma_cantidades
+                )
 
         if precio_adjudicado is None and precios_adjudicados:
             precio_adjudicado = cls.calcular_mediana(
@@ -2761,4 +2787,3 @@ class ComparadorIMService(AnalisisEconomicoService):
             "claves": analisis_claves,
             "tablas": tablas,
         }
-
