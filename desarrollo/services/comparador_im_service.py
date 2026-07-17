@@ -2167,3 +2167,593 @@ class ComparadorIMService(AnalisisEconomicoService):
             "tablas": tablas,
             "graficas": graficas,
         }
+
+    # ==========================================================
+    # COMPARADOR POR PROCEDIMIENTO
+    # ==========================================================
+
+    ETAPA_ADJUDICACION = "ADJUDICACION"
+    ETAPA_SUBASTA = "SUBASTA"
+    ETAPA_VIABLE = "VIABLE"
+    ETAPA_INICIAL = "INICIAL"
+    ETAPA_SIN_PRECIO = "SIN_PRECIO"
+
+    def obtener_procedimientos_disponibles(self, conn=None):
+        """
+        Devuelve los procedimientos disponibles para selección.
+        """
+        return self.repository.obtener_procedimientos_disponibles(
+            conn=conn
+        )
+
+    @classmethod
+    def construir_etapas_procedimiento(
+        cls,
+        propuestas,
+        adjudicaciones,
+    ):
+        """
+        Construye los precios representativos del procedimiento
+        seleccionado por clave.
+
+        Reglas:
+        - Inicial: menor propuesta INICIAL.
+        - Viable: menor propuesta INICIAL con evaluación POSITIVA.
+        - Subasta: menor propuesta SUBASTA.
+        - Adjudicación: precio ponderado por cantidad cuando existen
+          varias adjudicaciones; si no es posible, usa la mediana.
+        """
+        propuestas = propuestas or []
+        adjudicaciones = adjudicaciones or []
+
+        iniciales = []
+        viables = []
+        subastas = []
+
+        for registro in propuestas:
+            if not isinstance(registro, dict):
+                continue
+
+            tipo = str(
+                registro.get("tipo_propuesta") or ""
+            ).strip().upper()
+            precio = cls._decimal(
+                registro.get("precio_unitario")
+            )
+
+            if precio is None or precio <= cls.CERO:
+                continue
+
+            if tipo == cls.TIPO_INICIAL:
+                iniciales.append(precio)
+
+                resultado = str(
+                    registro.get("resultado_tecnico") or ""
+                ).strip().upper()
+
+                if resultado == cls.RESULTADO_POSITIVA:
+                    viables.append(precio)
+
+            elif tipo == cls.TIPO_SUBASTA:
+                subastas.append(precio)
+
+        precios_adjudicados = cls.extraer_precios_validos(
+            adjudicaciones,
+            campo_precio="precio_unitario_adjudicado",
+        )
+
+        precio_adjudicado = None
+
+        if adjudicaciones:
+            precio_adjudicado = cls.calcular_precio_ponderado(
+                registros=adjudicaciones,
+                campo_precio="precio_unitario_adjudicado",
+                campo_cantidad="cantidad_adjudicada",
+            )
+
+        if precio_adjudicado is None and precios_adjudicados:
+            precio_adjudicado = cls.calcular_mediana(
+                precios_adjudicados
+            )
+
+        return {
+            "mejor_precio_inicial": (
+                cls.redondear_precio(min(iniciales))
+                if iniciales
+                else None
+            ),
+            "mejor_precio_viable": (
+                cls.redondear_precio(min(viables))
+                if viables
+                else None
+            ),
+            "mejor_precio_subasta": (
+                cls.redondear_precio(min(subastas))
+                if subastas
+                else None
+            ),
+            "precio_adjudicado": cls.redondear_precio(
+                precio_adjudicado
+            ),
+            "total_propuestas_iniciales": len(iniciales),
+            "total_propuestas_viables": len(viables),
+            "total_subastas": len(subastas),
+            "total_adjudicaciones": len(
+                precios_adjudicados
+            ),
+        }
+
+    @classmethod
+    def seleccionar_precio_actual_procedimiento(
+        cls,
+        etapas,
+    ):
+        """
+        Selecciona la etapa más avanzada disponible para comparar
+        el procedimiento contra el mercado.
+        """
+        etapas = etapas or {}
+
+        prioridades = (
+            (
+                cls.ETAPA_ADJUDICACION,
+                etapas.get("precio_adjudicado"),
+            ),
+            (
+                cls.ETAPA_SUBASTA,
+                etapas.get("mejor_precio_subasta"),
+            ),
+            (
+                cls.ETAPA_VIABLE,
+                etapas.get("mejor_precio_viable"),
+            ),
+            (
+                cls.ETAPA_INICIAL,
+                etapas.get("mejor_precio_inicial"),
+            ),
+        )
+
+        for etapa, precio in prioridades:
+            precio_decimal = cls._decimal(precio)
+
+            if (
+                precio_decimal is not None
+                and precio_decimal > cls.CERO
+            ):
+                return {
+                    "etapa_actual": etapa,
+                    "precio_actual": cls.redondear_precio(
+                        precio_decimal
+                    ),
+                }
+
+        return {
+            "etapa_actual": cls.ETAPA_SIN_PRECIO,
+            "precio_actual": None,
+        }
+
+    @classmethod
+    def construir_referencia_mercado_procedimiento(
+        cls,
+        mercado_operativo,
+        mercado_historico,
+    ):
+        """
+        Construye la referencia externa del procedimiento.
+
+        Se conservan separadas:
+        - adjudicaciones de otros procedimientos;
+        - adjudicaciones históricas.
+
+        La referencia consolidada usa ambas fuentes.
+        """
+        precios_operativos = cls.extraer_precios_validos(
+            mercado_operativo,
+            campo_precio="precio_unitario_adjudicado",
+        )
+        precios_historicos = cls.extraer_precios_validos(
+            mercado_historico,
+            campo_precio="precio_unitario_adjudicado",
+        )
+        precios_consolidados = (
+            precios_operativos + precios_historicos
+        )
+
+        fuentes = {
+            "mercado_operativo": precios_operativos,
+            "mercado_historico": precios_historicos,
+            "mercado_consolidado": precios_consolidados,
+        }
+
+        estadisticas = cls.calcular_estadisticas_fuentes(
+            fuentes
+        )
+
+        referencia = {
+            "precio_referencia": (
+                estadisticas["mercado_consolidado"][
+                    "precio_mediana"
+                ]
+            ),
+            "fuente_referencia": (
+                "MERCADO_OPERATIVO_E_HISTORICO"
+                if precios_consolidados
+                else cls.FUENTE_SIN_REFERENCIA
+            ),
+            "total_observaciones": (
+                estadisticas["mercado_consolidado"][
+                    "total_observaciones"
+                ]
+            ),
+            "estadisticas_referencia": (
+                estadisticas["mercado_consolidado"]
+            ),
+        }
+
+        return {
+            "fuentes": fuentes,
+            "estadisticas": estadisticas,
+            "referencia": referencia,
+        }
+
+    @classmethod
+    def construir_analisis_procedimiento_clave(
+        cls,
+        universo_clave,
+        propuestas,
+        adjudicaciones_procedimiento,
+        mercado_operativo,
+        mercado_historico,
+    ):
+        """
+        Analiza una clave del procedimiento seleccionado contra el
+        mercado externo operativo e histórico.
+        """
+        etapas = cls.construir_etapas_procedimiento(
+            propuestas=propuestas,
+            adjudicaciones=adjudicaciones_procedimiento,
+        )
+        precio_actual = (
+            cls.seleccionar_precio_actual_procedimiento(
+                etapas
+            )
+        )
+        mercado = (
+            cls.construir_referencia_mercado_procedimiento(
+                mercado_operativo=mercado_operativo,
+                mercado_historico=mercado_historico,
+            )
+        )
+
+        tendencia = cls.calcular_tendencia(
+            (mercado_operativo or [])
+            + (mercado_historico or [])
+        )
+
+        comparacion = cls.comparar_cotizacion(
+            precio_im=precio_actual["precio_actual"],
+            cantidad=universo_clave.get(
+                "cantidad_requerida"
+            ),
+            referencia=mercado["referencia"],
+            valores_referencia=mercado["fuentes"][
+                "mercado_consolidado"
+            ],
+            tendencia=tendencia,
+        )
+
+        return {
+            "id_clave": universo_clave.get("id_clave"),
+            "clave": universo_clave.get("clave"),
+            "descripcion": universo_clave.get(
+                "descripcion"
+            ),
+            "id_categoria": universo_clave.get(
+                "id_categoria"
+            ),
+            "categoria": universo_clave.get("categoria"),
+            "cantidad_requerida": universo_clave.get(
+                "cantidad_requerida"
+            ),
+            "etapas_procedimiento": etapas,
+            "etapa_actual": precio_actual["etapa_actual"],
+            "precio_actual": precio_actual["precio_actual"],
+            "mercado_operativo": mercado_operativo or [],
+            "mercado_historico": mercado_historico or [],
+            "estadisticas_mercado": mercado["estadisticas"],
+            "referencia": mercado["referencia"],
+            "tendencia": tendencia,
+            "comparacion": comparacion,
+            "nivel_confianza": comparacion[
+                "nivel_confianza"
+            ],
+            "nivel_riesgo": comparacion["nivel_riesgo"],
+            "recomendaciones": comparacion[
+                "recomendaciones"
+            ],
+        }
+
+    @classmethod
+    def construir_resumen_procedimiento(
+        cls,
+        procedimiento,
+        analisis_claves,
+    ):
+        """
+        Construye indicadores generales del procedimiento.
+        """
+        analisis_claves = analisis_claves or []
+
+        return {
+            "id_procedimiento": procedimiento.get(
+                "id_procedimiento"
+            ),
+            "numero_procedimiento": procedimiento.get(
+                "numero_procedimiento"
+            ),
+            "descripcion": procedimiento.get("descripcion"),
+            "ejercicio": procedimiento.get("ejercicio"),
+            "total_claves": len(analisis_claves),
+            "claves_con_precio_actual": sum(
+                1
+                for item in analisis_claves
+                if item["precio_actual"] is not None
+            ),
+            "claves_sin_precio_actual": sum(
+                1
+                for item in analisis_claves
+                if item["precio_actual"] is None
+            ),
+            "claves_con_referencia": sum(
+                1
+                for item in analisis_claves
+                if item["referencia"][
+                    "precio_referencia"
+                ] is not None
+            ),
+            "claves_sin_referencia": sum(
+                1
+                for item in analisis_claves
+                if item["referencia"][
+                    "precio_referencia"
+                ] is None
+            ),
+            "claves_competitivas": sum(
+                1
+                for item in analisis_claves
+                if item["comparacion"][
+                    "clasificacion_desviacion"
+                ]
+                in {
+                    cls.DESVIACION_MUY_COMPETITIVO,
+                    cls.DESVIACION_COMPETITIVO,
+                }
+            ),
+            "claves_en_mercado": sum(
+                1
+                for item in analisis_claves
+                if item["comparacion"][
+                    "clasificacion_desviacion"
+                ] == cls.DESVIACION_EN_MERCADO
+            ),
+            "claves_elevadas": sum(
+                1
+                for item in analisis_claves
+                if item["comparacion"][
+                    "clasificacion_desviacion"
+                ]
+                in {
+                    cls.DESVIACION_LIGERAMENTE_ELEVADO,
+                    cls.DESVIACION_ELEVADO,
+                    cls.DESVIACION_MUY_ELEVADO,
+                }
+            ),
+            "claves_riesgo_alto": sum(
+                1
+                for item in analisis_claves
+                if item["nivel_riesgo"]
+                == cls.RIESGO_ALTO
+            ),
+            "claves_con_historico": sum(
+                1
+                for item in analisis_claves
+                if item["mercado_historico"]
+            ),
+        }
+
+    @staticmethod
+    def construir_tablas_procedimiento(
+        procedimiento,
+        analisis_claves,
+    ):
+        """
+        Prepara tablas planas para Streamlit.
+        """
+        resumen_claves = []
+        etapas = []
+        recomendaciones = []
+        evolucion = []
+        distribucion = []
+
+        for item in analisis_claves or []:
+            comparacion = item["comparacion"]
+            referencia = item["referencia"]
+
+            resumen_claves.append(
+                {
+                    "id_procedimiento": procedimiento.get(
+                        "id_procedimiento"
+                    ),
+                    "numero_procedimiento": procedimiento.get(
+                        "numero_procedimiento"
+                    ),
+                    "id_clave": item["id_clave"],
+                    "clave": item["clave"],
+                    "descripcion": item["descripcion"],
+                    "categoria": item["categoria"],
+                    "etapa_actual": item["etapa_actual"],
+                    "precio_actual": item["precio_actual"],
+                    "precio_referencia": referencia[
+                        "precio_referencia"
+                    ],
+                    "total_observaciones": referencia[
+                        "total_observaciones"
+                    ],
+                    "variacion_porcentual": comparacion[
+                        "variacion_porcentual"
+                    ],
+                    "clasificacion": comparacion[
+                        "clasificacion_desviacion"
+                    ],
+                    "tendencia": item["tendencia"][
+                        "tendencia"
+                    ],
+                    "confianza": item["nivel_confianza"],
+                    "riesgo": item["nivel_riesgo"],
+                }
+            )
+
+            etapas.append(
+                {
+                    "id_clave": item["id_clave"],
+                    "clave": item["clave"],
+                    **item["etapas_procedimiento"],
+                }
+            )
+
+            for recomendacion in item["recomendaciones"]:
+                recomendaciones.append(
+                    {
+                        "id_clave": item["id_clave"],
+                        "clave": item["clave"],
+                        **recomendacion,
+                    }
+                )
+
+            for periodo in item["tendencia"]["serie"]:
+                evolucion.append(
+                    {
+                        "id_clave": item["id_clave"],
+                        "clave": item["clave"],
+                        **periodo,
+                    }
+                )
+
+            for fuente, valores in item[
+                "estadisticas_mercado"
+            ].items():
+                if fuente == "mercado_consolidado":
+                    continue
+
+                precios = (
+                    item["mercado_operativo"]
+                    if fuente == "mercado_operativo"
+                    else item["mercado_historico"]
+                )
+
+                for registro in precios:
+                    distribucion.append(
+                        {
+                            "id_clave": item["id_clave"],
+                            "clave": item["clave"],
+                            "fuente": fuente,
+                            "precio": registro.get(
+                                "precio_unitario_adjudicado"
+                            ),
+                        }
+                    )
+
+        return {
+            "resumen_claves": resumen_claves,
+            "etapas_procedimiento": etapas,
+            "recomendaciones": recomendaciones,
+            "evolucion_precios": evolucion,
+            "distribucion_mercado": distribucion,
+        }
+
+    def comparar_procedimiento(
+        self,
+        id_procedimiento,
+        conn=None,
+    ):
+        """
+        Ejecuta el análisis inteligente del procedimiento contra
+        otros procedimientos operativos y el histórico.
+        """
+        contexto = (
+            self.repository.obtener_contexto_procedimiento(
+                id_procedimiento=id_procedimiento,
+                conn=conn,
+            )
+        )
+
+        if contexto is None:
+            raise ValueError(
+                "El procedimiento seleccionado no existe."
+            )
+
+        procedimiento = contexto["procedimiento"]
+        universo = contexto.get("universo", [])
+
+        propuestas_por_clave = self._agrupar_por_id_clave(
+            contexto.get("propuestas_procedimiento", [])
+        )
+        adjudicaciones_por_clave = (
+            self._agrupar_por_id_clave(
+                contexto.get(
+                    "adjudicaciones_procedimiento",
+                    [],
+                )
+            )
+        )
+        operativo_por_clave = self._agrupar_por_id_clave(
+            contexto.get("mercado_operativo", [])
+        )
+        historico_por_clave = self._agrupar_por_id_clave(
+            contexto.get("mercado_historico", [])
+        )
+
+        analisis_claves = []
+
+        for clave in universo:
+            id_clave = clave["id_clave"]
+
+            analisis_claves.append(
+                self.construir_analisis_procedimiento_clave(
+                    universo_clave=clave,
+                    propuestas=propuestas_por_clave.get(
+                        id_clave,
+                        [],
+                    ),
+                    adjudicaciones_procedimiento=(
+                        adjudicaciones_por_clave.get(
+                            id_clave,
+                            [],
+                        )
+                    ),
+                    mercado_operativo=operativo_por_clave.get(
+                        id_clave,
+                        [],
+                    ),
+                    mercado_historico=historico_por_clave.get(
+                        id_clave,
+                        [],
+                    ),
+                )
+            )
+
+        resumen = self.construir_resumen_procedimiento(
+            procedimiento=procedimiento,
+            analisis_claves=analisis_claves,
+        )
+        tablas = self.construir_tablas_procedimiento(
+            procedimiento=procedimiento,
+            analisis_claves=analisis_claves,
+        )
+
+        return {
+            "procedimiento": procedimiento,
+            "resumen": resumen,
+            "claves": analisis_claves,
+            "tablas": tablas,
+        }
