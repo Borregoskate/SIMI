@@ -932,11 +932,52 @@ def _generar_excel(resultado):
                     [{"Información": "Sin registros"}]
                 )
 
+            # Eliminar columnas técnicas
+            columnas_ocultar = [
+                "id_procedimiento",
+                "id_clave",
+            ]
+
+            df = df.drop(
+                columns=[
+                    columna
+                    for columna in columnas_ocultar
+                    if columna in df.columns
+                ],
+                errors="ignore",
+            )
+
             df.to_excel(
                 writer,
                 sheet_name=nombre[:31],
                 index=False,
             )
+
+            ws = writer.sheets[nombre[:31]]
+
+            from openpyxl.styles import numbers
+            from openpyxl.utils import get_column_letter
+
+            # Formato de moneda para columnas H e I
+            for col in ("H", "I"):
+                if ws.max_column >= ord(col) - 64:
+                    for cell in ws[col][1:]:
+                        cell.number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
+
+            # Formato porcentual para columna K
+            if ws.max_column >= 11:
+                for cell in ws["K"][1:]:
+                    cell.number_format = "0.00%"
+
+            # Ajustar automáticamente el ancho de las columnas
+            for column_cells in ws.columns:
+                longitud = max(
+                    len(str(cell.value)) if cell.value is not None else 0
+                    for cell in column_cells
+                )
+                ws.column_dimensions[
+                    get_column_letter(column_cells[0].column)
+                ].width = min(max(longitud + 2, 12), 45)
 
     salida.seek(0)
     return salida.getvalue()
