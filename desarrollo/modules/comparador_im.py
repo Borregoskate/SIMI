@@ -5,30 +5,29 @@ Sistema Inteligente de Mercado e Investigaciones
 
 comparador_im.py
 
-Interfaz Streamlit del Comparador Inteligente por Procedimiento.
+Módulo Streamlit del Comparador de Investigaciones de Mercado.
 
 Responsabilidades:
-- Permitir seleccionar un procedimiento existente.
-- Ejecutar el análisis del procedimiento contra:
-  * otros procedimientos operativos;
-  * adjudicaciones históricas.
-- Mostrar evolución interna por etapa.
-- Mostrar referencia de mercado, tendencia, riesgo y recomendaciones.
-- Generar un reporte temporal en Excel.
+- Recibir temporalmente una nueva IM en formato Excel.
+- Mostrar una vista previa del archivo.
+- Ejecutar ComparadorIMService.
+- Mostrar incidencias, indicadores, tablas y gráficas.
+- Permitir descargar un reporte temporal en Excel.
 
 Este módulo:
-- No carga archivos extraordinarios.
 - No ejecuta SQL.
-- No persiste resultados.
-- Mantiene el resultado únicamente en session_state.
+- No abre conexiones.
+- No calcula reglas analíticas.
+- No persiste el archivo ni los resultados.
+- Mantiene el análisis únicamente en session_state.
 
 Autor: Jorge Saavedra
-Versión: 2.0.0
+Versión: 1.0.0
 ==============================================================
 """
 
-from decimal import Decimal
 from io import BytesIO
+from decimal import Decimal
 
 import pandas as pd
 import plotly.express as px
@@ -39,12 +38,23 @@ from services.comparador_im_service import (
 )
 
 
+SESSION_ARCHIVO = "comparador_im_archivo"
 SESSION_RESULTADO = "comparador_im_resultado"
-SESSION_PROCEDIMIENTO = "comparador_im_procedimiento"
+SESSION_NOMBRE_ARCHIVO = "comparador_im_nombre_archivo"
+
+COLUMNAS_ESPERADAS = [
+    "RFC",
+    "RAZON SOCIAL",
+    "CLAVE",
+    "DESCRIPCION",
+    "CANTIDAD OFERTADA",
+    "PAIS DE ORIGEN",
+    "PRECIO UNITARIO",
+]
 
 
 # ==========================================================
-# UTILIDADES
+# FORMATO Y CONVERSIÓN
 # ==========================================================
 
 def _valor_entero(valor):
@@ -80,7 +90,7 @@ def _formatear_porcentaje(valor):
     return f"{_formatear_decimal(valor)}%"
 
 
-def _dataframe(registros):
+def _normalizar_dataframe(registros):
     if not registros:
         return pd.DataFrame()
 
@@ -92,7 +102,10 @@ def _dataframe(registros):
     )
 
 
-def _convertir_decimales(df):
+def _convertir_decimales_dataframe(df):
+    """
+    Convierte Decimal a float únicamente para visualización.
+    """
     if df.empty:
         return df
 
@@ -110,104 +123,148 @@ def _convertir_decimales(df):
     return resultado
 
 
+def _leer_archivo_excel(archivo):
+    """
+    Lee la primera hoja del Excel sin persistir el archivo.
+    """
+    if archivo is None:
+        return pd.DataFrame()
+
+    return pd.read_excel(
+        archivo,
+        sheet_name=0,
+        dtype=object,
+    )
+
+
+def _limpiar_dataframe_entrada(df):
+    """
+    Elimina filas completamente vacías y columnas sin nombre útil.
+    """
+    if df.empty:
+        return df
+
+    resultado = df.dropna(how="all").copy()
+
+    columnas_validas = [
+        columna
+        for columna in resultado.columns
+        if not str(columna).startswith("Unnamed:")
+    ]
+
+    return resultado[columnas_validas]
+
+
 # ==========================================================
-# ESTADO
+# ESTADO DE SESIÓN
 # ==========================================================
 
 def _inicializar_estado():
+    st.session_state.setdefault(SESSION_ARCHIVO, None)
     st.session_state.setdefault(SESSION_RESULTADO, None)
-    st.session_state.setdefault(SESSION_PROCEDIMIENTO, None)
+    st.session_state.setdefault(SESSION_NOMBRE_ARCHIVO, None)
 
 
-def _limpiar_resultado():
+def _limpiar_analisis():
+    st.session_state[SESSION_ARCHIVO] = None
     st.session_state[SESSION_RESULTADO] = None
-    st.session_state[SESSION_PROCEDIMIENTO] = None
+    st.session_state[SESSION_NOMBRE_ARCHIVO] = None
 
 
 # ==========================================================
-# ENCABEZADO
+# ENCABEZADO Y CARGA
 # ==========================================================
 
 def _mostrar_encabezado():
-    st.header("Comparador Inteligente de Procedimientos")
+    st.header("Comparador de Investigaciones de Mercado")
     st.caption(
-        "Analiza un procedimiento existente contra otros "
-        "procedimientos operativos y el histórico acumulado "
-        "de las mismas claves."
+        "Compara una nueva Investigación de Mercado contra "
+        "propuestas iniciales, subastas y adjudicaciones "
+        "operativas e históricas."
     )
     st.info(
-        "El procedimiento seleccionado nunca se incluye dentro "
-        "de su propia referencia de mercado."
+        "El archivo y los resultados se procesan temporalmente "
+        "durante esta sesión. No se guardan en la base de datos."
     )
 
 
-# ==========================================================
-# SELECCIÓN Y EJECUCIÓN
-# ==========================================================
-
-def _cargar_procedimientos(service):
-    try:
-        return service.obtener_procedimientos_disponibles()
-    except Exception as error:
-        st.error(
-            "No fue posible recuperar los procedimientos disponibles."
+def _mostrar_estructura_esperada():
+    with st.expander("Estructura esperada del archivo"):
+        st.write(
+            "La primera hoja del archivo debe contener estas columnas:"
         )
+        st.code(" | ".join(COLUMNAS_ESPERADAS))
+        st.caption(
+            "También se aceptan los aliases CANTIDAD, PRECIO y "
+            "PAIS ORIGEN."
+        )
+
+
+def _mostrar_carga_archivo():
+    archivo = st.file_uploader(
+        "Selecciona la Investigación de Mercado",
+        type=["xlsx", "xls"],
+        key="comparador_im_uploader",
+        help=(
+            "El archivo se procesa en memoria y no se almacena "
+            "en SIMI."
+        ),
+    )
+
+    if archivo is None:
+        return None
+
+    try:
+        df = _limpiar_dataframe_entrada(
+            _leer_archivo_excel(archivo)
+        )
+    except Exception as error:
+        st.error("No fue posible leer el archivo seleccionado.")
         st.exception(error)
-        return []
+        return None
 
-
-def _etiqueta_procedimiento(registro):
-    numero = registro.get("numero_procedimiento")
-    ejercicio = registro.get("ejercicio")
-    total_claves = _valor_entero(
-        registro.get("total_claves")
-    )
-
-    return (
-        f"{numero} | Ejercicio: "
-        f"{ejercicio if ejercicio is not None else 'S/A'} "
-        f"| Claves: {total_claves}"
-    )
-
-
-def _mostrar_selector(service):
-    procedimientos = _cargar_procedimientos(service)
-
-    if not procedimientos:
+    if df.empty:
         st.warning(
-            "No existen procedimientos con claves registradas."
+            "El archivo no contiene filas con información en "
+            "la primera hoja."
         )
         return None
 
-    mapa = {
-        _etiqueta_procedimiento(registro): registro
-        for registro in procedimientos
-    }
+    st.session_state[SESSION_ARCHIVO] = df
+    st.session_state[SESSION_NOMBRE_ARCHIVO] = archivo.name
 
-    seleccionado = st.selectbox(
-        "Selecciona un procedimiento",
-        options=list(mapa.keys()),
-        key="comparador_im_selector_procedimiento",
+    st.success(
+        f"Archivo leído correctamente: {archivo.name} "
+        f"({_valor_entero(len(df))} filas)."
     )
 
-    procedimiento = mapa[seleccionado]
+    with st.expander("Vista previa de la IM", expanded=True):
+        st.dataframe(
+            df.head(50),
+            width="stretch",
+            hide_index=True,
+        )
 
-    descripcion = procedimiento.get("descripcion")
+        if len(df) > 50:
+            st.caption(
+                "La vista previa muestra las primeras 50 filas."
+            )
 
-    if descripcion:
-        st.caption(descripcion)
-
-    return procedimiento
+    return df
 
 
-def _mostrar_acciones(procedimiento):
+# ==========================================================
+# EJECUCIÓN DEL ANÁLISIS
+# ==========================================================
+
+def _mostrar_acciones(df):
     columna_1, columna_2 = st.columns([3, 1])
 
     ejecutar = columna_1.button(
-        "Ejecutar análisis inteligente",
+        "Comparar Investigación de Mercado",
         type="primary",
         width="stretch",
-        disabled=procedimiento is None,
+        disabled=df is None or df.empty,
     )
 
     limpiar = columna_2.button(
@@ -216,38 +273,32 @@ def _mostrar_acciones(procedimiento):
     )
 
     if limpiar:
-        _limpiar_resultado()
+        _limpiar_analisis()
         st.rerun()
 
     return ejecutar
 
 
-def _ejecutar_analisis(service, procedimiento):
+def _ejecutar_comparacion(df):
+    service = ComparadorIMService()
+
     try:
         with st.spinner(
-            "Analizando el procedimiento contra el mercado "
-            "operativo e histórico..."
+            "Comparando la investigación contra la información "
+            "acumulada de SIMI..."
         ):
-            resultado = service.comparar_procedimiento(
-                id_procedimiento=procedimiento[
-                    "id_procedimiento"
-                ]
-            )
+            resultado = service.comparar_investigacion(df)
     except ValueError as error:
         st.warning(str(error))
         return None
     except Exception as error:
         st.error(
-            "No fue posible completar el análisis del procedimiento."
+            "No fue posible completar la comparación de la IM."
         )
         st.exception(error)
         return None
 
     st.session_state[SESSION_RESULTADO] = resultado
-    st.session_state[SESSION_PROCEDIMIENTO] = procedimiento[
-        "id_procedimiento"
-    ]
-
     return resultado
 
 
@@ -255,101 +306,174 @@ def _ejecutar_analisis(service, procedimiento):
 # INDICADORES
 # ==========================================================
 
-def _mostrar_indicadores(resultado):
-    resumen = resultado.get("resumen", {}) or {}
-    procedimiento = resultado.get("procedimiento", {}) or {}
-
-    st.subheader(
-        procedimiento.get("numero_procedimiento")
-        or "Procedimiento"
-    )
-
-    st.caption(
-        procedimiento.get("descripcion")
-        or "Sin descripción"
-    )
+def _mostrar_indicadores(resumen):
+    st.subheader("Resumen general")
 
     fila_1 = st.columns(5)
     fila_1[0].metric(
-        "Total de claves",
-        _valor_entero(resumen.get("total_claves")),
+        "Filas recibidas",
+        _valor_entero(
+            resumen.get("total_filas_recibidas")
+        ),
     )
     fila_1[1].metric(
-        "Con precio actual",
+        "Filas válidas",
         _valor_entero(
-            resumen.get("claves_con_precio_actual")
+            resumen.get("total_filas_validas")
         ),
     )
     fila_1[2].metric(
-        "Con referencia",
+        "Filas inválidas",
+        _valor_entero(
+            resumen.get("total_filas_invalidas")
+        ),
+    )
+    fila_1[3].metric(
+        "Claves encontradas",
+        _valor_entero(
+            resumen.get("claves_encontradas")
+        ),
+    )
+    fila_1[4].metric(
+        "Claves no encontradas",
+        _valor_entero(
+            resumen.get("claves_no_encontradas")
+        ),
+    )
+
+    fila_2 = st.columns(5)
+    fila_2[0].metric(
+        "Claves con referencia",
         _valor_entero(
             resumen.get("claves_con_referencia")
         ),
     )
-    fila_1[3].metric(
-        "Con histórico",
-        _valor_entero(
-            resumen.get("claves_con_historico")
-        ),
-    )
-    fila_1[4].metric(
-        "Riesgo alto",
-        _valor_entero(
-            resumen.get("claves_riesgo_alto")
-        ),
-    )
-
-    fila_2 = st.columns(4)
-    fila_2[0].metric(
-        "Competitivas",
-        _valor_entero(
-            resumen.get("claves_competitivas")
-        ),
-    )
     fila_2[1].metric(
-        "En mercado",
-        _valor_entero(
-            resumen.get("claves_en_mercado")
-        ),
-    )
-    fila_2[2].metric(
-        "Elevadas",
-        _valor_entero(
-            resumen.get("claves_elevadas")
-        ),
-    )
-    fila_2[3].metric(
         "Sin referencia",
         _valor_entero(
             resumen.get("claves_sin_referencia")
         ),
     )
+    fila_2[2].metric(
+        "Cotizaciones competitivas",
+        _valor_entero(
+            resumen.get("cotizaciones_competitivas")
+        ),
+    )
+    fila_2[3].metric(
+        "Cotizaciones elevadas",
+        _valor_entero(
+            resumen.get("cotizaciones_elevadas")
+        ),
+    )
+    fila_2[4].metric(
+        "Claves con riesgo alto",
+        _valor_entero(
+            resumen.get("claves_riesgo_alto")
+        ),
+    )
+
+
+# ==========================================================
+# INCIDENCIAS
+# ==========================================================
+
+def _mostrar_incidencias(resultado):
+    incidencias = resultado.get("incidencias", {}) or {}
+    filas_invalidas = incidencias.get(
+        "filas_invalidas",
+        [],
+    )
+    claves_no_encontradas = incidencias.get(
+        "claves_no_encontradas",
+        [],
+    )
+
+    if not filas_invalidas and not claves_no_encontradas:
+        st.success(
+            "No se detectaron incidencias estructurales ni claves "
+            "fuera del catálogo."
+        )
+        return
+
+    if filas_invalidas:
+        st.warning(
+            f"Se detectaron {len(filas_invalidas)} filas inválidas."
+        )
+
+        registros = []
+
+        for incidencia in filas_invalidas:
+            registro = incidencia.get("registro") or {}
+
+            registros.append(
+                {
+                    "Fila": incidencia.get("numero_fila"),
+                    "RFC": registro.get("rfc"),
+                    "Razón social": registro.get(
+                        "razon_social"
+                    ),
+                    "Clave": registro.get("clave"),
+                    "Errores": " | ".join(
+                        incidencia.get("errores", [])
+                    ),
+                }
+            )
+
+        st.dataframe(
+            pd.DataFrame(registros),
+            width="stretch",
+            hide_index=True,
+        )
+
+    if claves_no_encontradas:
+        st.warning(
+            f"Se detectaron {len(claves_no_encontradas)} "
+            "cotizaciones con claves inexistentes."
+        )
+
+        st.dataframe(
+            pd.DataFrame(claves_no_encontradas).rename(
+                columns={
+                    "numero_fila": "Fila",
+                    "clave": "Clave",
+                    "rfc": "RFC",
+                    "razon_social": "Razón social",
+                    "error": "Incidencia",
+                }
+            ),
+            width="stretch",
+            hide_index=True,
+        )
 
 
 # ==========================================================
 # TABLAS
 # ==========================================================
 
-def _mostrar_resumen_claves(registros):
-    df = _dataframe(registros)
+def _mostrar_tabla_resumen_claves(registros):
+    df = _normalizar_dataframe(registros)
 
     if df.empty:
-        st.info("No existen claves analizadas.")
+        st.info("No existen claves analizadas para mostrar.")
         return
 
     columnas = {
         "clave": "Clave",
         "descripcion": "Descripción",
         "categoria": "Categoría",
-        "etapa_actual": "Etapa actual",
-        "precio_actual": "Precio actual",
-        "precio_referencia": "Referencia mercado",
-        "total_observaciones": "Observaciones",
-        "variacion_porcentual": "Variación (%)",
-        "clasificacion": "Clasificación",
+        "precio_referencia": "Precio referencia",
+        "fuente_referencia": "Fuente",
+        "nivel_confianza": "Confianza",
         "tendencia": "Tendencia",
-        "confianza": "Confianza",
-        "riesgo": "Riesgo",
+        "total_cotizaciones_im": "Cotizaciones IM",
+        "precio_minimo_im": "Precio mínimo IM",
+        "precio_maximo_im": "Precio máximo IM",
+        "cotizaciones_competitivas": "Competitivas",
+        "cotizaciones_en_mercado": "En mercado",
+        "cotizaciones_elevadas": "Elevadas",
+        "cotizaciones_muy_elevadas": "Muy elevadas",
+        "riesgo_clave": "Riesgo",
     }
 
     disponibles = [
@@ -359,7 +483,7 @@ def _mostrar_resumen_claves(registros):
     ]
 
     st.dataframe(
-        _convertir_decimales(
+        _convertir_decimales_dataframe(
             df[disponibles].rename(columns=columnas)
         ),
         width="stretch",
@@ -367,23 +491,28 @@ def _mostrar_resumen_claves(registros):
     )
 
 
-def _mostrar_etapas(registros):
-    df = _dataframe(registros)
+def _mostrar_tabla_cotizaciones(registros):
+    df = _normalizar_dataframe(registros)
 
     if df.empty:
-        st.info("No existen etapas para mostrar.")
+        st.info("No existen cotizaciones analizadas.")
         return
 
     columnas = {
+        "numero_fila": "Fila",
         "clave": "Clave",
-        "mejor_precio_inicial": "Mejor inicial",
-        "mejor_precio_viable": "Mejor viable",
-        "mejor_precio_subasta": "Mejor subasta",
-        "precio_adjudicado": "Precio adjudicado",
-        "total_propuestas_iniciales": "Iniciales",
-        "total_propuestas_viables": "Viables",
-        "total_subastas": "Subastas",
-        "total_adjudicaciones": "Adjudicaciones",
+        "razon_social": "Proveedor",
+        "rfc": "RFC",
+        "cantidad": "Cantidad",
+        "precio_im": "Precio IM",
+        "precio_referencia": "Precio referencia",
+        "fuente_referencia": "Fuente",
+        "diferencia_unitaria": "Diferencia unitaria",
+        "variacion_porcentual": "Variación (%)",
+        "clasificacion_desviacion": "Clasificación",
+        "nivel_confianza": "Confianza",
+        "impacto_estimado": "Impacto estimado",
+        "nivel_riesgo": "Riesgo",
     }
 
     disponibles = [
@@ -393,7 +522,7 @@ def _mostrar_etapas(registros):
     ]
 
     st.dataframe(
-        _convertir_decimales(
+        _convertir_decimales_dataframe(
             df[disponibles].rename(columns=columnas)
         ),
         width="stretch",
@@ -401,15 +530,56 @@ def _mostrar_etapas(registros):
     )
 
 
-def _mostrar_recomendaciones(registros):
-    df = _dataframe(registros)
+def _mostrar_tabla_estadisticas(registros):
+    df = _normalizar_dataframe(registros)
 
     if df.empty:
-        st.info("No existen recomendaciones.")
+        st.info(
+            "No existen estadísticas de mercado para mostrar."
+        )
         return
 
     columnas = {
         "clave": "Clave",
+        "fuente": "Fuente",
+        "total_observaciones": "Observaciones",
+        "precio_minimo": "Mínimo",
+        "precio_maximo": "Máximo",
+        "precio_promedio": "Promedio",
+        "precio_mediana": "Mediana",
+        "desviacion_estandar": "Desviación estándar",
+        "percentil_25": "P25",
+        "percentil_75": "P75",
+        "rango_intercuartil": "IQR",
+    }
+
+    disponibles = [
+        columna
+        for columna in columnas
+        if columna in df.columns
+    ]
+
+    st.dataframe(
+        _convertir_decimales_dataframe(
+            df[disponibles].rename(columns=columnas)
+        ),
+        width="stretch",
+        hide_index=True,
+    )
+
+
+def _mostrar_tabla_recomendaciones(registros):
+    df = _normalizar_dataframe(registros)
+
+    if df.empty:
+        st.info("No existen recomendaciones para mostrar.")
+        return
+
+    columnas = {
+        "clave": "Clave",
+        "numero_fila": "Fila",
+        "razon_social": "Proveedor",
+        "rfc": "RFC",
         "nivel": "Nivel",
         "titulo": "Recomendación",
         "mensaje": "Detalle",
@@ -432,11 +602,13 @@ def _mostrar_recomendaciones(registros):
 # GRÁFICAS
 # ==========================================================
 
-def _mostrar_grafica_clasificacion(registros):
-    df = _dataframe(registros)
+def _mostrar_grafica_clasificaciones(registros):
+    df = _normalizar_dataframe(registros)
 
     if df.empty or "clasificacion" not in df.columns:
-        st.info("No existe información de clasificación.")
+        st.info(
+            "No existen clasificaciones para generar la gráfica."
+        )
         return
 
     resumen = (
@@ -449,10 +621,10 @@ def _mostrar_grafica_clasificacion(registros):
         resumen,
         x="clasificacion",
         y="total",
-        title="Clasificación de claves",
+        title="Clasificación de cotizaciones",
         labels={
             "clasificacion": "Clasificación",
-            "total": "Claves",
+            "total": "Cotizaciones",
         },
     )
 
@@ -460,120 +632,45 @@ def _mostrar_grafica_clasificacion(registros):
 
 
 def _mostrar_grafica_riesgo(registros):
-    df = _dataframe(registros)
+    df = _normalizar_dataframe(registros)
 
-    if df.empty or "riesgo" not in df.columns:
-        st.info("No existe información de riesgo.")
+    if df.empty or "nivel_riesgo" not in df.columns:
+        st.info("No existe información de riesgo por clave.")
         return
 
     resumen = (
-        df.groupby("riesgo", dropna=False)
+        df.groupby("nivel_riesgo", dropna=False)
         .size()
-        .reset_index(name="total")
+        .reset_index(name="total_claves")
     )
 
     figura = px.pie(
         resumen,
-        names="riesgo",
-        values="total",
-        title="Riesgo por clave",
+        names="nivel_riesgo",
+        values="total_claves",
+        title="Distribución del riesgo por clave",
         hole=0.45,
     )
 
     st.plotly_chart(figura, width="stretch")
 
 
-def _mostrar_grafica_etapas(registros):
-    df = _dataframe(registros)
-
-    if df.empty or "clave" not in df.columns:
-        st.info("No existen etapas para graficar.")
-        return
-
-    columnas_precio = [
-        "mejor_precio_inicial",
-        "mejor_precio_viable",
-        "mejor_precio_subasta",
-        "precio_adjudicado",
-    ]
-
-    disponibles = [
-        columna
-        for columna in columnas_precio
-        if columna in df.columns
-    ]
-
-    if not disponibles:
-        st.info("No existen precios por etapa.")
-        return
-
-    claves = sorted(df["clave"].dropna().unique())
-
-    clave = st.selectbox(
-        "Clave para evolución interna",
-        options=claves,
-        key="comparador_im_clave_etapas",
-    )
-
-    fila = df[df["clave"] == clave].iloc[0]
-
-    registros_etapas = []
-
-    nombres = {
-        "mejor_precio_inicial": "Inicial",
-        "mejor_precio_viable": "Viable",
-        "mejor_precio_subasta": "Subasta",
-        "precio_adjudicado": "Adjudicación",
-    }
-
-    for columna in disponibles:
-        valor = fila.get(columna)
-
-        if pd.isna(valor):
-            continue
-
-        registros_etapas.append(
-            {
-                "etapa": nombres[columna],
-                "precio": float(valor),
-            }
-        )
-
-    if not registros_etapas:
-        st.info(
-            "La clave seleccionada no tiene precios por etapa."
-        )
-        return
-
-    figura = px.line(
-        pd.DataFrame(registros_etapas),
-        x="etapa",
-        y="precio",
-        markers=True,
-        title=f"Evolución interna — {clave}",
-        labels={
-            "etapa": "Etapa",
-            "precio": "Precio unitario",
-        },
-    )
-
-    st.plotly_chart(figura, width="stretch")
-
-
 def _mostrar_grafica_distribucion(registros):
-    df = _dataframe(registros)
+    df = _normalizar_dataframe(registros)
 
     if df.empty:
         st.info(
-            "No existe mercado operativo o histórico para graficar."
+            "No existen precios de mercado para mostrar "
+            "la distribución."
         )
         return
 
-    requeridas = {"clave", "fuente", "precio"}
+    columnas = {"clave", "fuente", "precio"}
 
-    if not requeridas.issubset(df.columns):
+    if not columnas.issubset(df.columns):
         st.info(
-            "La distribución de mercado no está disponible."
+            "La información disponible no permite construir "
+            "la distribución."
         )
         return
 
@@ -584,13 +681,12 @@ def _mostrar_grafica_distribucion(registros):
     df = df.dropna(subset=["precio"])
 
     if df.empty:
-        st.info("No existen precios numéricos.")
+        st.info("No existen precios numéricos disponibles.")
         return
 
     claves = sorted(df["clave"].dropna().unique())
-
     clave = st.selectbox(
-        "Clave para distribución de mercado",
+        "Clave para distribución",
         options=claves,
         key="comparador_im_clave_distribucion",
     )
@@ -602,7 +698,7 @@ def _mostrar_grafica_distribucion(registros):
         x="fuente",
         y="precio",
         points="all",
-        title=f"Mercado operativo e histórico — {clave}",
+        title=f"Distribución de precios — {clave}",
         labels={
             "fuente": "Fuente",
             "precio": "Precio unitario",
@@ -612,29 +708,33 @@ def _mostrar_grafica_distribucion(registros):
     st.plotly_chart(figura, width="stretch")
 
 
-def _mostrar_grafica_evolucion(registros):
-    df = _dataframe(registros)
+def _mostrar_grafica_evolucion(registros, cotizaciones):
+    df = _normalizar_dataframe(registros)
+    df_im = _normalizar_dataframe(cotizaciones)
 
     if df.empty:
         st.info(
-            "No existe una serie temporal suficiente."
+            "No existe una serie histórica suficiente para mostrar "
+            "la evolución."
         )
         return
 
-    requeridas = {
+    columnas = {
         "clave",
-        "precio_mediana",
+        "ejercicio",
         "numero_procedimiento",
+        "precio_mediana",
     }
 
-    if not requeridas.issubset(df.columns):
-        st.info("La evolución histórica no está disponible.")
+    if not columnas.issubset(df.columns):
+        st.info(
+            "La información temporal disponible es insuficiente."
+        )
         return
 
     claves = sorted(df["clave"].dropna().unique())
-
     clave = st.selectbox(
-        "Clave para evolución de mercado",
+        "Clave para evolución",
         options=claves,
         key="comparador_im_clave_evolucion",
     )
@@ -661,12 +761,32 @@ def _mostrar_grafica_evolucion(registros):
         x="periodo",
         y="precio_mediana",
         markers=True,
-        title=f"Evolución operativa e histórica — {clave}",
+        title=f"Evolución de precios adjudicados — {clave}",
         labels={
             "periodo": "Periodo",
             "precio_mediana": "Precio mediano",
         },
     )
+
+    if (
+        not df_im.empty
+        and {"clave", "precio_im"}.issubset(df_im.columns)
+    ):
+        precios_im = df_im[
+            df_im["clave"] == clave
+        ]["precio_im"]
+
+        precios_im = pd.to_numeric(
+            precios_im,
+            errors="coerce",
+        ).dropna()
+
+        if not precios_im.empty:
+            figura.add_hline(
+                y=float(precios_im.min()),
+                line_dash="dash",
+                annotation_text="Mejor precio IM",
+            )
 
     st.plotly_chart(figura, width="stretch")
 
@@ -675,9 +795,9 @@ def _mostrar_grafica_evolucion(registros):
 # DETALLE POR CLAVE
 # ==========================================================
 
-def _mostrar_detalle_clave(claves):
-    if not claves:
-        st.info("No existen claves analizadas.")
+def _mostrar_detalle_clave(analisis_claves):
+    if not analisis_claves:
+        st.info("No existen claves para mostrar en detalle.")
         return
 
     mapa = {
@@ -685,7 +805,7 @@ def _mostrar_detalle_clave(claves):
             f"{registro.get('clave')} — "
             f"{registro.get('descripcion') or 'Sin descripción'}"
         ): registro
-        for registro in claves
+        for registro in analisis_claves
     }
 
     etiqueta = st.selectbox(
@@ -694,105 +814,65 @@ def _mostrar_detalle_clave(claves):
         key="comparador_im_detalle_clave",
     )
 
-    item = mapa[etiqueta]
-    comparacion = item.get("comparacion", {}) or {}
-    referencia = item.get("referencia", {}) or {}
-    etapas = item.get("etapas_procedimiento", {}) or {}
-    estadisticas = item.get(
-        "estadisticas_mercado",
-        {},
-    ) or {}
+    analisis = mapa[etiqueta]
+    referencia = analisis.get("referencia", {}) or {}
+    objetivo = analisis.get("precio_objetivo", {}) or {}
+    tendencia = analisis.get("tendencia", {}) or {}
+    resumen = analisis.get("resumen", {}) or {}
 
     fila_1 = st.columns(5)
     fila_1[0].metric(
-        "Etapa actual",
-        item.get("etapa_actual") or "SIN PRECIO",
-    )
-    fila_1[1].metric(
-        "Precio actual",
-        _formatear_moneda(
-            item.get("precio_actual")
-        ),
-    )
-    fila_1[2].metric(
         "Referencia",
         _formatear_moneda(
             referencia.get("precio_referencia")
         ),
     )
-    fila_1[3].metric(
-        "Variación",
-        _formatear_porcentaje(
-            comparacion.get("variacion_porcentual")
+    fila_1[1].metric(
+        "Fuente",
+        referencia.get("fuente_referencia")
+        or "Sin referencia",
+    )
+    fila_1[2].metric(
+        "Precio objetivo",
+        _formatear_moneda(
+            objetivo.get("precio_objetivo")
         ),
+    )
+    fila_1[3].metric(
+        "Tendencia",
+        tendencia.get("tendencia")
+        or "Sin información",
     )
     fila_1[4].metric(
         "Riesgo",
-        item.get("nivel_riesgo")
+        resumen.get("riesgo_clave")
         or "INDETERMINADO",
     )
 
-    st.write("### Evolución del procedimiento")
+    if objetivo.get("rango_disponible"):
+        st.info(
+            "Rango objetivo sugerido: "
+            f"{_formatear_moneda(objetivo.get('rango_objetivo_minimo'))} "
+            "a "
+            f"{_formatear_moneda(objetivo.get('rango_objetivo_maximo'))}."
+        )
 
-    st.json(
-        {
-            "Mejor precio inicial": etapas.get(
-                "mejor_precio_inicial"
-            ),
-            "Mejor precio viable": etapas.get(
-                "mejor_precio_viable"
-            ),
-            "Mejor precio subasta": etapas.get(
-                "mejor_precio_subasta"
-            ),
-            "Precio adjudicado": etapas.get(
-                "precio_adjudicado"
-            ),
-        }
-    )
+    cotizaciones = analisis.get("cotizaciones", [])
 
-    st.write("### Mercado operativo")
-
-    st.json(
-        estadisticas.get("mercado_operativo", {})
-    )
-
-    st.write("### Mercado histórico")
-
-    st.json(
-        estadisticas.get("mercado_historico", {})
-    )
-
-    st.write("### Mercado consolidado")
-
-    st.json(
-        estadisticas.get("mercado_consolidado", {})
-    )
-
-    st.write("### Recomendaciones")
-
-    recomendaciones = item.get("recomendaciones", [])
-
-    if not recomendaciones:
-        st.info("No existen recomendaciones.")
-    else:
-        for recomendacion in recomendaciones:
-            nivel = recomendacion.get("nivel")
-            titulo = recomendacion.get("titulo")
-            mensaje = recomendacion.get("mensaje")
-
-            st.markdown(
-                f"**{nivel} — {titulo}**  \n{mensaje}"
-            )
+    _mostrar_tabla_cotizaciones(cotizaciones)
 
 
 # ==========================================================
-# DESCARGA TEMPORAL
+# EXPORTACIÓN TEMPORAL
 # ==========================================================
 
-def _generar_excel(resultado):
+def _generar_excel_resultados(resultado):
+    """
+    Genera un archivo en memoria. No lo guarda en disco ni BD.
+    """
     salida = BytesIO()
     tablas = resultado.get("tablas", {}) or {}
+    incidencias = resultado.get("incidencias", {}) or {}
 
     with pd.ExcelWriter(
         salida,
@@ -803,27 +883,31 @@ def _generar_excel(resultado):
                 "resumen_claves",
                 [],
             ),
-            "Etapas procedimiento": tablas.get(
-                "etapas_procedimiento",
+            "Cotizaciones": tablas.get(
+                "comparacion_cotizaciones",
+                [],
+            ),
+            "Estadisticas": tablas.get(
+                "estadisticas_mercado",
                 [],
             ),
             "Recomendaciones": tablas.get(
                 "recomendaciones",
                 [],
             ),
-            "Evolucion mercado": tablas.get(
-                "evolucion_precios",
+            "Filas invalidas": incidencias.get(
+                "filas_invalidas",
                 [],
             ),
-            "Distribucion mercado": tablas.get(
-                "distribucion_mercado",
+            "Claves no encontradas": incidencias.get(
+                "claves_no_encontradas",
                 [],
             ),
         }
 
         for nombre, registros in hojas.items():
-            df = _convertir_decimales(
-                _dataframe(registros)
+            df = _convertir_decimales_dataframe(
+                _normalizar_dataframe(registros)
             )
 
             if df.empty:
@@ -842,26 +926,19 @@ def _generar_excel(resultado):
 
 
 def _mostrar_descarga(resultado):
-    procedimiento = resultado.get(
-        "procedimiento",
-        {},
-    ) or {}
-
-    numero = (
-        procedimiento.get("numero_procedimiento")
-        or "procedimiento"
+    nombre_original = (
+        st.session_state.get(SESSION_NOMBRE_ARCHIVO)
+        or "investigacion_mercado"
     )
-
-    nombre = (
-        f"{numero}_comparador_inteligente_simi.xlsx"
-        .replace("/", "_")
-        .replace("\\", "_")
+    nombre_base = nombre_original.rsplit(".", 1)[0]
+    nombre_salida = (
+        f"{nombre_base}_comparacion_simi.xlsx"
     )
 
     st.download_button(
         "Descargar reporte temporal",
-        data=_generar_excel(resultado),
-        file_name=nombre,
+        data=_generar_excel_resultados(resultado),
+        file_name=nombre_salida,
         mime=(
             "application/vnd.openxmlformats-officedocument."
             "spreadsheetml.sheet"
@@ -871,13 +948,20 @@ def _mostrar_descarga(resultado):
 
 
 # ==========================================================
-# RESULTADO
+# CONTENIDO FINAL
 # ==========================================================
 
 def _mostrar_resultado(resultado):
-    _mostrar_indicadores(resultado)
-
+    resumen = resultado.get("resumen", {}) or {}
     tablas = resultado.get("tablas", {}) or {}
+    graficas = resultado.get("graficas", {}) or {}
+
+    st.divider()
+    _mostrar_indicadores(resumen)
+
+    st.divider()
+    with st.expander("Incidencias detectadas", expanded=False):
+        _mostrar_incidencias(resultado)
 
     st.divider()
     st.subheader("Visualización analítica")
@@ -885,70 +969,80 @@ def _mostrar_resultado(resultado):
     columna_1, columna_2 = st.columns(2)
 
     with columna_1:
-        _mostrar_grafica_clasificacion(
-            tablas.get("resumen_claves", [])
+        _mostrar_grafica_clasificaciones(
+            graficas.get(
+                "clasificacion_cotizaciones",
+                [],
+            )
         )
 
     with columna_2:
         _mostrar_grafica_riesgo(
-            tablas.get("resumen_claves", [])
+            graficas.get("riesgo_por_clave", [])
         )
 
     columna_3, columna_4 = st.columns(2)
 
     with columna_3:
-        _mostrar_grafica_etapas(
-            tablas.get(
-                "etapas_procedimiento",
+        _mostrar_grafica_distribucion(
+            graficas.get(
+                "distribucion_precios",
                 [],
             )
         )
 
     with columna_4:
-        _mostrar_grafica_distribucion(
-            tablas.get(
-                "distribucion_mercado",
+        _mostrar_grafica_evolucion(
+            graficas.get(
+                "evolucion_precios",
                 [],
-            )
+            ),
+            tablas.get(
+                "comparacion_cotizaciones",
+                [],
+            ),
         )
 
     st.divider()
-
-    _mostrar_grafica_evolucion(
-        tablas.get("evolucion_precios", [])
-    )
-
-    st.divider()
-    st.subheader("Detalle del análisis")
+    st.subheader("Detalle de resultados")
 
     pestañas = st.tabs(
         [
             "Resumen por clave",
-            "Etapas del procedimiento",
+            "Cotizaciones",
+            "Estadísticas",
             "Recomendaciones",
             "Detalle de clave",
         ]
     )
 
     with pestañas[0]:
-        _mostrar_resumen_claves(
+        _mostrar_tabla_resumen_claves(
             tablas.get("resumen_claves", [])
         )
 
     with pestañas[1]:
-        _mostrar_etapas(
+        _mostrar_tabla_cotizaciones(
             tablas.get(
-                "etapas_procedimiento",
+                "comparacion_cotizaciones",
                 [],
             )
         )
 
     with pestañas[2]:
-        _mostrar_recomendaciones(
-            tablas.get("recomendaciones", [])
+        _mostrar_tabla_estadisticas(
+            tablas.get(
+                "estadisticas_mercado",
+                [],
+            )
         )
 
     with pestañas[3]:
+        _mostrar_tabla_recomendaciones(
+            tablas.get("recomendaciones", [])
+        )
+
+    with pestañas[4]:
         _mostrar_detalle_clave(
             resultado.get("claves", [])
         )
@@ -958,30 +1052,28 @@ def _mostrar_resultado(resultado):
 
 
 # ==========================================================
-# CONTROLADOR
+# CONTROLADOR PRINCIPAL
 # ==========================================================
 
 def mostrar_comparador_im():
     """
-    Renderiza el Comparador Inteligente por Procedimiento.
+    Renderiza el Comparador de Investigaciones de Mercado.
     """
     _inicializar_estado()
     _mostrar_encabezado()
+    _mostrar_estructura_esperada()
 
-    service = ComparadorIMService()
-    procedimiento = _mostrar_selector(service)
+    df = _mostrar_carga_archivo()
 
-    ejecutar = _mostrar_acciones(procedimiento)
+    if df is None:
+        df = st.session_state.get(SESSION_ARCHIVO)
 
-    if ejecutar and procedimiento is not None:
-        resultado = _ejecutar_analisis(
-            service=service,
-            procedimiento=procedimiento,
-        )
+    ejecutar = _mostrar_acciones(df)
+
+    if ejecutar:
+        resultado = _ejecutar_comparacion(df)
     else:
-        resultado = st.session_state.get(
-            SESSION_RESULTADO
-        )
+        resultado = st.session_state.get(SESSION_RESULTADO)
 
     if resultado:
         _mostrar_resultado(resultado)
